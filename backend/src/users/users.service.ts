@@ -16,11 +16,7 @@ export class UsersService {
       where: [{ email: data.email }, { username: data.username }],
     });
     if (existing) throw new ConflictException('Email ou username já em uso');
-
-    if (data.password) {
-      data.password = await bcrypt.hash(data.password, 12);
-    }
-
+    if (data.password) data.password = await bcrypt.hash(data.password, 12);
     const user = this.userRepo.create(data);
     return this.userRepo.save(user);
   }
@@ -48,6 +44,19 @@ export class UsersService {
     return this.findById(id);
   }
 
+  async updateProfile(id: string, data: {
+    displayName?: string;
+    bio?: string;
+    avatarUrl?: string;
+    coverUrl?: string;
+    isPrivate?: boolean;
+  }): Promise<any> {
+    await this.userRepo.update(id, data);
+    const user = await this.findById(id);
+    const { password, refreshToken, ...safe } = user as any;
+    return safe;
+  }
+
   async updateRefreshToken(id: string, token: string | null): Promise<void> {
     const hashed = token ? await bcrypt.hash(token, 10) : null;
     await this.userRepo.update(id, { refreshToken: hashed });
@@ -65,7 +74,6 @@ export class UsersService {
       .loadRelationCountAndMap('user.followingCount', 'user.following')
       .loadRelationCountAndMap('user.postsCount', 'user.posts')
       .getOne();
-
     if (!user) throw new NotFoundException('Usuário não encontrado');
     const { password, refreshToken, ...profile } = user as any;
     return profile;

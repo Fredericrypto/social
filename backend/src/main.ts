@@ -7,34 +7,32 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  // Segurança
-  app.use(helmet());
+  app.use(helmet({ crossOriginResourcePolicy: false }));
+
   app.enableCors({
-    origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3001', 'http://localhost:19006'],
+    origin: true, // aceita qualquer origem em desenvolvimento
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
   });
 
-  // Validação global
   app.useGlobalPipes(new ValidationPipe({
     whitelist: true,
     forbidNonWhitelisted: true,
     transform: true,
   }));
 
-  // Prefixo global
   app.setGlobalPrefix('api/v1');
 
-  // Swagger (documentação automática)
   const config = new DocumentBuilder()
     .setTitle('Minha Rede API')
     .setVersion('1.0')
     .addBearerAuth()
     .build();
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api/docs', app, document);
+  SwaggerModule.setup('api/docs', app, SwaggerModule.createDocument(app, config));
 
   const port = process.env.PORT || 3000;
-  await app.listen(port);
+  await app.listen(port, '0.0.0.0'); // escuta em todas as interfaces
   console.log(`🚀 Backend rodando em http://localhost:${port}`);
   console.log(`📖 Docs em http://localhost:${port}/api/docs`);
 }

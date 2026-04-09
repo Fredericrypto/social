@@ -11,6 +11,7 @@ import { LikesModule } from './likes/likes.module';
 import { CommentsModule } from './comments/comments.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { MediaModule } from './media/media.module';
+import { MessagesModule } from './messages/messages.module';
 import { User } from './users/entities/user.entity';
 import { Post } from './posts/entities/post.entity';
 import { Follow } from './follows/entities/follow.entity';
@@ -20,6 +21,8 @@ import { Notification } from './notifications/entities/notification.entity';
 import { FeedItem } from './feed/entities/feed.entity';
 import { Invite } from './invites/entities/invite.entity';
 import { Block } from './blocks/entities/block.entity';
+import { Conversation } from './messages/entities/conversation.entity';
+import { Message } from './messages/entities/message.entity';
 
 @Module({
   imports: [
@@ -33,22 +36,16 @@ import { Block } from './blocks/entities/block.entity';
         username: config.get('DB_USERNAME'),
         password: config.get('DB_PASSWORD'),
         database: config.get('DB_NAME'),
-        entities: [User, Post, Follow, Like, Comment, Notification, FeedItem, Invite, Block],
+        entities: [User, Post, Follow, Like, Comment, Notification, FeedItem, Invite, Block, Conversation, Message],
         synchronize: config.get('NODE_ENV') === 'development',
         logging: false,
       }),
       inject: [ConfigService],
     }),
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }]),
-    AuthModule,
-    UsersModule,
-    PostsModule,
-    FeedModule,
-    FollowsModule,
-    LikesModule,
-    CommentsModule,
-    NotificationsModule,
-    MediaModule,
+    AuthModule, UsersModule, PostsModule, FeedModule,
+    FollowsModule, LikesModule, CommentsModule,
+    NotificationsModule, MediaModule, MessagesModule,
   ],
 })
 export class AppModule {}
