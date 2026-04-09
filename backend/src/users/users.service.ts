@@ -79,3 +79,4 @@ export class UsersService {
     return profile;
   }
 }
+// APPEND — não executar como arquivo separado

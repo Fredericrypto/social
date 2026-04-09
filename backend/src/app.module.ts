@@ -12,6 +12,9 @@ import { CommentsModule } from './comments/comments.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { MediaModule } from './media/media.module';
 import { MessagesModule } from './messages/messages.module';
+import { BlocksModule } from './blocks/blocks.module';
+import { ReportsModule } from './reports/reports.module';
+import { InvitesModule } from './invites/invites.module';
 import { User } from './users/entities/user.entity';
 import { Post } from './posts/entities/post.entity';
 import { Follow } from './follows/entities/follow.entity';
@@ -23,6 +26,7 @@ import { Invite } from './invites/entities/invite.entity';
 import { Block } from './blocks/entities/block.entity';
 import { Conversation } from './messages/entities/conversation.entity';
 import { Message } from './messages/entities/message.entity';
+import { Report } from './reports/entities/report.entity';
 
 @Module({
   imports: [
@@ -36,7 +40,10 @@ import { Message } from './messages/entities/message.entity';
         username: config.get('DB_USERNAME'),
         password: config.get('DB_PASSWORD'),
         database: config.get('DB_NAME'),
-        entities: [User, Post, Follow, Like, Comment, Notification, FeedItem, Invite, Block, Conversation, Message],
+        entities: [
+          User, Post, Follow, Like, Comment, Notification,
+          FeedItem, Invite, Block, Conversation, Message, Report,
+        ],
         synchronize: config.get('NODE_ENV') === 'development',
         logging: false,
       }),
@@ -46,6 +53,7 @@ import { Message } from './messages/entities/message.entity';
     AuthModule, UsersModule, PostsModule, FeedModule,
     FollowsModule, LikesModule, CommentsModule,
     NotificationsModule, MediaModule, MessagesModule,
+    BlocksModule, ReportsModule, InvitesModule,
   ],
 })
 export class AppModule {}

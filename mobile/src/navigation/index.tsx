@@ -15,6 +15,8 @@ import NewPostScreen from '../screens/main/NewPostScreen';
 import MessagesScreen from '../screens/main/MessagesScreen';
 import ChatScreen from '../screens/main/ChatScreen';
 import EditProfileScreen from '../screens/main/EditProfileScreen';
+import ExploreScreen from '../screens/main/ExploreScreen';
+import NotificationsScreen from '../screens/main/NotificationsScreen';
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -48,21 +50,24 @@ function MainTabs() {
         tabBarIcon: ({ focused, color }) => {
           if (route.name === 'NewPost') return <NewPostIcon focused={focused} />;
           const icons: Record<string, [string, string]> = {
-            Feed: ['home', 'home-outline'],
-            Messages: ['chatbubble', 'chatbubble-outline'],
-            Profile: ['person', 'person-outline'],
+            Feed:          ['home',               'home-outline'],
+            Explore:       ['search',             'search-outline'],
+            Notifications: ['notifications',      'notifications-outline'],
+            Messages:      ['chatbubble',         'chatbubble-outline'],
+            Profile:       ['person',             'person-outline'],
           };
           const [active, inactive] = icons[route.name] || ['apps', 'apps-outline'];
-          return <Ionicons name={(focused ? active : inactive) as any} size={24} color={color} />;
+          return <Ionicons name={(focused ? active : inactive) as any} size={23} color={color} />;
         },
         tabBarActiveTintColor: theme.primary,
         tabBarInactiveTintColor: theme.textSecondary,
       })}
     >
       <Tab.Screen name="Feed" component={FeedScreen} />
+      <Tab.Screen name="Explore" component={ExploreScreen} />
       <Tab.Screen name="NewPost" component={NewPostScreen} />
+      <Tab.Screen name="Notifications" component={NotificationsScreen} />
       <Tab.Screen name="Messages" component={MessagesScreen} />
-      <Tab.Screen name="Profile" component={ProfileScreen} />
     </Tab.Navigator>
   );
 }
@@ -73,6 +78,7 @@ function MainStack() {
       <Stack.Screen name="Tabs" component={MainTabs} />
       <Stack.Screen name="Chat" component={ChatScreen} options={{ gestureEnabled: true }} />
       <Stack.Screen name="EditProfile" component={EditProfileScreen} options={{ gestureEnabled: true }} />
+      <Stack.Screen name="Profile" component={ProfileScreen} options={{ gestureEnabled: true }} />
     </Stack.Navigator>
   );
 }
