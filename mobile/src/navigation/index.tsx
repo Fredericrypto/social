@@ -18,6 +18,7 @@ import ChatScreen from "../screens/main/ChatScreen";
 import EditProfileScreen from "../screens/main/EditProfileScreen";
 import ExploreScreen from "../screens/main/ExploreScreen";
 import NotificationsScreen from "../screens/main/NotificationsScreen";
+import SettingsScreen from "../screens/main/SettingsScreen";
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -118,6 +119,7 @@ function MainStack() {
       <Stack.Screen name="Chat" component={ChatScreen} options={{ gestureEnabled: true }} />
       <Stack.Screen name="EditProfile" component={EditProfileScreen} options={{ gestureEnabled: true }} />
       <Stack.Screen name="Messages" component={MessagesScreen} options={{ gestureEnabled: true }} />
+      <Stack.Screen name="Settings" component={SettingsScreen} options={{ gestureEnabled: true }} />
     </Stack.Navigator>
   );
 }

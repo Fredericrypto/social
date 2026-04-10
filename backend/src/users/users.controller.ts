@@ -1,37 +1,51 @@
-import { Controller, Get, Patch, Body, Param, Query, UseGuards, Request } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { UsersService } from './users.service';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { Controller, Get, Patch, Body, Param, Query, UseGuards, Request } from "@nestjs/common";
+import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
+import { UsersService } from "./users.service";
+import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
+import { IsOptional, IsString, IsBoolean, IsArray, IsIn } from "class-validator";
 
-@ApiTags('users')
-@Controller('users')
+class UpdateProfileDto {
+  @IsOptional() @IsString() displayName?: string;
+  @IsOptional() @IsString() bio?: string;
+  @IsOptional() @IsString() avatarUrl?: string;
+  @IsOptional() @IsString() coverUrl?: string;
+  @IsOptional() @IsBoolean() isPrivate?: boolean;
+  @IsOptional() @IsString() jobTitle?: string;
+  @IsOptional() @IsString() company?: string;
+  @IsOptional() @IsString() website?: string;
+  @IsOptional() @IsArray() skills?: string[];
+  @IsOptional() @IsBoolean() showLikesCount?: boolean;
+  @IsOptional() @IsIn(["everyone", "followers", "nobody"]) whoCanMessage?: string;
+}
+
+@ApiTags("users")
+@Controller("users")
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
-  @Get('me')
+  @Get("me")
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   async getMe(@Request() req) {
     const user = await this.usersService.findById(req.user.id);
-    return this.sanitize(user);
+    const { password, refreshToken, ...safe } = user as any;
+    return safe;
   }
 
-  @Get(':username')
-  getProfile(@Param('username') username: string) {
+  @Get("search")
+  search(@Query("q") q: string) {
+    return this.usersService.search(q || "");
+  }
+
+  @Get(":username")
+  getProfile(@Param("username") username: string) {
     return this.usersService.getProfile(username);
   }
 
-  @Patch('me')
+  @Patch("me")
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  async updateMe(@Request() req, @Body() body: any) {
-    const { password, email, refreshToken, ...safe } = body;
-    const user = await this.usersService.update(req.user.id, safe);
-    return this.sanitize(user);
-  }
-
-  private sanitize(user: any) {
-    const { password, refreshToken, ...safe } = user;
-    return safe;
+  async updateMe(@Request() req, @Body() dto: UpdateProfileDto) {
+    return this.usersService.updateProfile(req.user.id, dto);
   }
 }
