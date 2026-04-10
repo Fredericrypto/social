@@ -1,17 +1,20 @@
-import { create } from 'zustand';
-import { lightTheme, darkTheme, Theme } from '../theme';
+import { create } from "zustand";
+import { lightTheme, darkTheme, Theme } from "../theme";
 
 interface ThemeState {
   isDark: boolean;
   theme: Theme;
   toggle: () => void;
+  setDark: (v: boolean) => void;
 }
 
-export const useThemeStore = create<ThemeState>((set, get) => ({
-  isDark: true,
+export const useThemeStore = create<ThemeState>((set) => ({
+  isDark: true,           // dark como padrão — nunca pisca branco
   theme: darkTheme,
-  toggle: () => {
-    const isDark = !get().isDark;
-    set({ isDark, theme: isDark ? darkTheme : lightTheme });
-  },
+  setDark: (isDark) => set({ isDark, theme: isDark ? darkTheme : lightTheme }),
+  toggle: () =>
+    set((state) => ({
+      isDark: !state.isDark,
+      theme: state.isDark ? lightTheme : darkTheme,
+    })),
 }));

@@ -34,6 +34,14 @@ export class AuthController {
     return this.authService.logout(req.user.id);
   }
 
+
+  @Post('forgot-password')
+  forgotPassword(@Body() dto: { email: string }) {
+    // Em produção: gerar token e enviar email
+    // Por ora: retorna mensagem genérica por segurança (não revela se email existe)
+    return { message: 'Se esse email existir, você receberá as instruções em breve.' };
+  }
+
   @Get('google')
   @UseGuards(GoogleAuthGuard)
   googleAuth() {}

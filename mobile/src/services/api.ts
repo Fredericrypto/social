@@ -1,6 +1,7 @@
 import axios from "axios";
 
-const API_URL = "http://192.168.4.46:3000/api/v1";
+// Expo expõe vars EXPO_PUBLIC_* automaticamente no cliente
+const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://192.168.4.46:3000/api/v1";
 
 // Storage unificado: localStorage na web, SecureStore no mobile
 const storage = {
