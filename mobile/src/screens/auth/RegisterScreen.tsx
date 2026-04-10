@@ -11,6 +11,60 @@ import { useThemeStore } from "../../store/theme.store";
 import PrimaryButton from "../../components/ui/PrimaryButton";
 import TermsModal from "../../components/modals/TermsModal";
 
+// Componente de input SEM TouchableOpacity envolvendo — evita blur forçado
+function Field({
+  icon, placeholder, value, onChangeText,
+  secureTextEntry, keyboardType, autoCapitalize,
+  returnKeyType, onSubmitEditing, inputRef,
+  textContentType, showToggle, onToggle, showPass,
+}: any) {
+  const { theme } = useThemeStore();
+  return (
+    <View style={[fieldStyles.wrap, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+      <Text style={fieldStyles.icon}>{icon}</Text>
+      <TextInput
+        ref={inputRef}
+        style={[fieldStyles.input, { color: theme.text }]}
+        placeholder={placeholder}
+        placeholderTextColor={theme.textSecondary}
+        value={value}
+        onChangeText={onChangeText}
+        secureTextEntry={secureTextEntry && !showPass}
+        keyboardType={keyboardType || "default"}
+        autoCapitalize={autoCapitalize || "none"}
+        autoCorrect={false}
+        returnKeyType={returnKeyType || "next"}
+        onSubmitEditing={onSubmitEditing}
+        blurOnSubmit={false}
+        underlineColorAndroid="transparent"
+        textContentType={textContentType}
+      />
+      {showToggle && (
+        <TouchableOpacity
+          onPress={onToggle}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        >
+          <Ionicons
+            name={showPass ? "eye-off-outline" : "eye-outline"}
+            size={18}
+            color={theme.textSecondary}
+          />
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+}
+
+const fieldStyles = StyleSheet.create({
+  wrap: {
+    flexDirection: "row", alignItems: "center",
+    borderRadius: 14, borderWidth: 1,
+    paddingHorizontal: 16, height: 54,
+  },
+  icon: { fontSize: 16, marginRight: 10, opacity: 0.5 },
+  input: { flex: 1, fontSize: 15, height: "100%" as any },
+});
+
 export default function RegisterScreen({ navigation }: any) {
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
@@ -20,6 +74,7 @@ export default function RegisterScreen({ navigation }: any) {
   const [termsVisible, setTermsVisible] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [loading, setLoading] = useState(false);
+
   const { register } = useAuthStore();
   const { theme } = useThemeStore();
 
@@ -28,7 +83,10 @@ export default function RegisterScreen({ navigation }: any) {
   const passwordRef = useRef<TextInput>(null);
 
   const handleRegister = useCallback(async () => {
-    if (!email.trim() || !username.trim() || !password) {
+    const trimEmail = email.trim().toLowerCase();
+    const trimUsername = username.trim().toLowerCase();
+
+    if (!trimEmail || !trimUsername || !password) {
       Alert.alert("Campos obrigatórios", "Preencha email, username e senha");
       return;
     }
@@ -36,24 +94,23 @@ export default function RegisterScreen({ navigation }: any) {
       Alert.alert("Senha fraca", "Mínimo de 8 caracteres");
       return;
     }
-    if (!/^[a-zA-Z0-9_]+$/.test(username.trim())) {
-      Alert.alert("Username inválido", "Use apenas letras, números e _");
+    if (!/^[a-zA-Z0-9_]+$/.test(trimUsername)) {
+      Alert.alert("Username inválido", "Apenas letras, números e _");
       return;
     }
     if (!termsAccepted) {
       setTermsVisible(true);
       return;
     }
+
     setLoading(true);
     try {
-      await register(
-        email.trim().toLowerCase(),
-        username.trim().toLowerCase(),
-        password,
-        displayName.trim() || undefined
-      );
+      console.log("[Register] Tentando:", trimEmail, trimUsername);
+      await register(trimEmail, trimUsername, password, displayName.trim() || undefined);
+      console.log("[Register] Sucesso");
     } catch (e: any) {
       const msg = e?.response?.data?.message;
+      console.error("[Register] Erro:", msg || e?.message);
       Alert.alert("Erro", Array.isArray(msg) ? msg.join("\n") : msg || "Erro ao criar conta");
     } finally {
       setLoading(false);
@@ -80,7 +137,7 @@ export default function RegisterScreen({ navigation }: any) {
           bounces={false}
         >
           <View style={styles.header}>
-            <LinearGradient colors={["#7C3AED", "#6D28D9"]} style={styles.logoBox} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
+            <LinearGradient colors={["#7C3AED", "#6D28D9"]} style={styles.logo} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
               <Text style={{ fontSize: 30, color: "#fff" }}>◈</Text>
             </LinearGradient>
             <Text style={[styles.title, { color: theme.text }]}>Criar conta</Text>
@@ -88,97 +145,67 @@ export default function RegisterScreen({ navigation }: any) {
           </View>
 
           <View style={styles.form}>
-            {/* Cada input é independente — sem estado compartilhado que cause re-render */}
-            <View style={[styles.field, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-              <Text style={styles.fieldIcon}>👤</Text>
-              <TextInput
-                style={[styles.fieldInput, { color: theme.text }]}
-                placeholder="Nome de exibição (opcional)"
-                placeholderTextColor={theme.textSecondary}
-                value={displayName}
-                onChangeText={setDisplayName}
-                autoCapitalize="words"
-                returnKeyType="next"
-                onSubmitEditing={() => emailRef.current?.focus()}
-                blurOnSubmit={false}
-                underlineColorAndroid="transparent"
-                textContentType="name"
-              />
-            </View>
+            <Field
+              icon="👤"
+              placeholder="Nome de exibição (opcional)"
+              value={displayName}
+              onChangeText={setDisplayName}
+              autoCapitalize="words"
+              returnKeyType="next"
+              onSubmitEditing={() => emailRef.current?.focus()}
+              textContentType="name"
+            />
+            <Field
+              icon="✉"
+              placeholder="Email *"
+              value={email}
+              onChangeText={setEmail}
+              keyboardType="email-address"
+              returnKeyType="next"
+              inputRef={emailRef}
+              onSubmitEditing={() => usernameRef.current?.focus()}
+              textContentType="emailAddress"
+            />
+            <Field
+              icon="@"
+              placeholder="Username *"
+              value={username}
+              onChangeText={setUsername}
+              returnKeyType="next"
+              inputRef={usernameRef}
+              onSubmitEditing={() => passwordRef.current?.focus()}
+              textContentType="username"
+            />
+            <Field
+              icon="🔒"
+              placeholder="Senha * (mín. 8 caracteres)"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+              showToggle
+              showPass={showPass}
+              onToggle={() => setShowPass(v => !v)}
+              returnKeyType="done"
+              inputRef={passwordRef}
+              onSubmitEditing={handleRegister}
+              textContentType="newPassword"
+            />
 
-            <View style={[styles.field, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-              <Text style={styles.fieldIcon}>✉</Text>
-              <TextInput
-                ref={emailRef}
-                style={[styles.fieldInput, { color: theme.text }]}
-                placeholder="Email *"
-                placeholderTextColor={theme.textSecondary}
-                value={email}
-                onChangeText={setEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={false}
-                returnKeyType="next"
-                onSubmitEditing={() => usernameRef.current?.focus()}
-                blurOnSubmit={false}
-                underlineColorAndroid="transparent"
-                textContentType="emailAddress"
-              />
-            </View>
-
-            <View style={[styles.field, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-              <Text style={styles.fieldIcon}>@</Text>
-              <TextInput
-                ref={usernameRef}
-                style={[styles.fieldInput, { color: theme.text }]}
-                placeholder="Username * (ex: frederic)"
-                placeholderTextColor={theme.textSecondary}
-                value={username}
-                onChangeText={setUsername}
-                autoCapitalize="none"
-                autoCorrect={false}
-                returnKeyType="next"
-                onSubmitEditing={() => passwordRef.current?.focus()}
-                blurOnSubmit={false}
-                underlineColorAndroid="transparent"
-                textContentType="username"
-              />
-            </View>
-
-            <View style={[styles.field, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-              <Text style={styles.fieldIcon}>🔒</Text>
-              <TextInput
-                ref={passwordRef}
-                style={[styles.fieldInput, { color: theme.text }]}
-                placeholder="Senha * (mín. 8 caracteres)"
-                placeholderTextColor={theme.textSecondary}
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry={!showPass}
-                returnKeyType="done"
-                onSubmitEditing={handleRegister}
-                blurOnSubmit={false}
-                underlineColorAndroid="transparent"
-                textContentType="newPassword"
-              />
-              <TouchableOpacity
-                onPress={() => setShowPass(v => !v)}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              >
-                <Ionicons name={showPass ? "eye-off-outline" : "eye-outline"} size={18} color={theme.textSecondary} />
-              </TouchableOpacity>
-            </View>
-
-            {/* Termos */}
-            <TouchableOpacity style={styles.termsRow} onPress={() => setTermsVisible(true)} activeOpacity={0.7}>
-              <View style={[styles.checkbox, { borderColor: termsAccepted ? theme.primary : theme.border }, termsAccepted && { backgroundColor: theme.primary }]}>
+            <TouchableOpacity
+              style={styles.termsRow}
+              onPress={() => setTermsVisible(true)}
+              activeOpacity={0.7}
+            >
+              <View style={[
+                styles.checkbox,
+                { borderColor: termsAccepted ? theme.primary : theme.border },
+                termsAccepted && { backgroundColor: theme.primary },
+              ]}>
                 {termsAccepted && <Ionicons name="checkmark" size={11} color="#fff" />}
               </View>
               <Text style={[styles.termsText, { color: theme.textSecondary }]}>
                 Li e aceito os{" "}
                 <Text style={{ color: theme.primaryLight, fontWeight: "600" }}>Termos de Uso</Text>
-                {" "}e a{" "}
-                <Text style={{ color: theme.primaryLight, fontWeight: "600" }}>Política de Privacidade</Text>
               </Text>
             </TouchableOpacity>
 
@@ -207,13 +234,10 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   scroll: { flexGrow: 1, justifyContent: "center", paddingHorizontal: 28, paddingVertical: 60 },
   header: { alignItems: "center", marginBottom: 32, gap: 10 },
-  logoBox: { width: 64, height: 64, borderRadius: 20, alignItems: "center", justifyContent: "center" },
+  logo: { width: 64, height: 64, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   title: { fontSize: 28, fontWeight: "800", letterSpacing: -0.5 },
   sub: { fontSize: 14 },
   form: { gap: 12 },
-  field: { flexDirection: "row", alignItems: "center", borderRadius: 14, borderWidth: 1, paddingHorizontal: 16, height: 54 },
-  fieldIcon: { fontSize: 16, marginRight: 10, opacity: 0.5 },
-  fieldInput: { flex: 1, fontSize: 15, height: "100%" as any },
   termsRow: { flexDirection: "row", alignItems: "flex-start", gap: 10, marginTop: 4 },
   checkbox: { width: 20, height: 20, borderRadius: 6, borderWidth: 1.5, alignItems: "center", justifyContent: "center", marginTop: 1 },
   termsText: { flex: 1, fontSize: 12, lineHeight: 18 },

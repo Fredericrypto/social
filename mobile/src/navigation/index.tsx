@@ -37,8 +37,7 @@ function NewPostButton() {
     <LinearGradient
       colors={["#7C3AED", "#6D28D9"]}
       style={styles.newPostBtn}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
+      start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
     >
       <Ionicons name="add" size={24} color="#fff" />
     </LinearGradient>
@@ -49,10 +48,11 @@ function MainTabs() {
   const { theme, isDark } = useThemeStore();
   const { unreadNotifications } = useBadges();
 
-  const tabBarBg = isDark ? "#0D0D14" : "#FFFFFF";
-  const tabBarBorder = isDark ? "#1F1F2E" : "#EFEFEF";
-  const activeColor = theme.primary;
-  const inactiveColor = isDark ? "#4B5563" : "#9CA3AF";
+  // Cores explícitas — não dependem de herança do sistema
+  const bg = isDark ? "#0D0D14" : "#FFFFFF";
+  const border = isDark ? "#1F1F2E" : "#EFEFEF";
+  const active = theme.primary;          // #7C3AED sempre
+  const inactive = isDark ? "#4B5563" : "#374151";  // contraste garantido no light
 
   return (
     <Tab.Navigator
@@ -60,44 +60,35 @@ function MainTabs() {
         headerShown: false,
         tabBarShowLabel: false,
         tabBarStyle: {
-          backgroundColor: tabBarBg,
-          borderTopColor: tabBarBorder,
+          backgroundColor: bg,
+          borderTopColor: border,
           borderTopWidth: 1,
           height: Platform.OS === "ios" ? 82 : 62,
           paddingBottom: Platform.OS === "ios" ? 22 : 8,
           paddingTop: 8,
-          elevation: 8,
-          shadowColor: "#000",
-          shadowOpacity: 0.15,
-          shadowRadius: 8,
-          shadowOffset: { width: 0, height: -2 },
+          elevation: 0,
+          shadowOpacity: 0,
         },
-        tabBarActiveTintColor: activeColor,
-        tabBarInactiveTintColor: inactiveColor,
+        tabBarActiveTintColor: active,
+        tabBarInactiveTintColor: inactive,
         tabBarIcon: ({ focused, color }) => {
-          if (route.name === "NewPost") {
-            return <NewPostButton />;
-          }
+          if (route.name === "NewPost") return <NewPostButton />;
+
           const iconMap: Record<string, [string, string]> = {
             Feed:          ["home",          "home-outline"],
             Explore:       ["search",        "search-outline"],
             Notifications: ["notifications", "notifications-outline"],
             Profile:       ["person",        "person-outline"],
           };
-          const [active, inactive] = iconMap[route.name] || ["apps", "apps-outline"];
+          const [activeIcon, inactiveIcon] = iconMap[route.name] || ["apps", "apps-outline"];
+          const iconName = (focused ? activeIcon : inactiveIcon) as any;
+          const iconColor = focused ? active : inactive;
+
           return (
             <View style={styles.tabIconWrap}>
-              <Ionicons
-                name={(focused ? active : inactive) as any}
-                size={24}
-                color={focused ? activeColor : inactiveColor}
-              />
-              {route.name === "Notifications" && (
-                <BadgeDot count={unreadNotifications} />
-              )}
-              {focused && (
-                <View style={[styles.activeDot, { backgroundColor: activeColor }]} />
-              )}
+              <Ionicons name={iconName} size={24} color={iconColor} />
+              {route.name === "Notifications" && <BadgeDot count={unreadNotifications} />}
+              {focused && <View style={[styles.activeDot, { backgroundColor: active }]} />}
             </View>
           );
         },
@@ -130,9 +121,18 @@ function AppContent() {
 
   useEffect(() => { loadUser(); }, []);
 
-  const navTheme = isDark
-    ? { ...DarkTheme, colors: { ...DarkTheme.colors, background: theme.background, card: theme.surface } }
-    : { ...DefaultTheme, colors: { ...DefaultTheme.colors, background: theme.background, card: theme.surface } };
+  // Tema do NavigationContainer com cores explícitas
+  const navTheme = {
+    dark: isDark,
+    colors: {
+      primary: theme.primary,
+      background: theme.background,
+      card: isDark ? "#0D0D14" : "#FFFFFF",
+      text: theme.text,
+      border: theme.border,
+      notification: "#EF4444",
+    },
+  };
 
   if (isLoading) {
     return (
@@ -172,18 +172,9 @@ export default function Navigation() {
 const styles = StyleSheet.create({
   loading: { flex: 1, alignItems: "center", justifyContent: "center" },
   loadingIcon: { width: 72, height: 72, borderRadius: 22, alignItems: "center", justifyContent: "center" },
-  newPostBtn: {
-    width: 44, height: 44, borderRadius: 14,
-    alignItems: "center", justifyContent: "center",
-  },
+  newPostBtn: { width: 44, height: 44, borderRadius: 14, alignItems: "center", justifyContent: "center" },
   tabIconWrap: { alignItems: "center", gap: 3 },
   activeDot: { width: 4, height: 4, borderRadius: 2 },
-  badge: {
-    position: "absolute", top: -5, right: -10,
-    minWidth: 16, height: 16, borderRadius: 8,
-    backgroundColor: "#EF4444",
-    alignItems: "center", justifyContent: "center",
-    paddingHorizontal: 3,
-  },
+  badge: { position: "absolute", top: -5, right: -10, minWidth: 16, height: 16, borderRadius: 8, backgroundColor: "#EF4444", alignItems: "center", justifyContent: "center", paddingHorizontal: 3 },
   badgeText: { color: "#fff", fontSize: 9, fontWeight: "700" },
 });
