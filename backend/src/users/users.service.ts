@@ -67,16 +67,18 @@ export class UsersService {
   }
 
   async getProfile(username: string) {
-    const user = await this.userRepo
-      .createQueryBuilder('user')
-      .where('user.username = :username', { username })
-      .loadRelationCountAndMap('user.followersCount', 'user.followers')
-      .loadRelationCountAndMap('user.followingCount', 'user.following')
-      .loadRelationCountAndMap('user.postsCount', 'user.posts')
-      .getOne();
-    if (!user) throw new NotFoundException('Usuário não encontrado');
+    const user = await this.userRepo.findOne({ where: { username } });
+    if (!user) throw new NotFoundException("Usuário não encontrado");
+
+    // Contar via queries separadas — sem depender de @OneToMany na entity
+    const [followersCount, followingCount, postsCount] = await Promise.all([
+      this.userRepo.manager.count("follows", { where: { followingId: user.id } }),
+      this.userRepo.manager.count("follows", { where: { followerId: user.id } }),
+      this.userRepo.manager.count("posts", { where: { userId: user.id, isDeleted: false } }),
+    ]);
+
     const { password, refreshToken, ...profile } = user as any;
-    return profile;
+    return { ...profile, followersCount, followingCount, postsCount };
   }
 }
 // APPEND — não executar como arquivo separado
