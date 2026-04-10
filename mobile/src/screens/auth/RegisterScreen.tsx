@@ -1,7 +1,8 @@
 import React, { useState, useRef, useCallback } from "react";
 import {
   View, Text, TouchableOpacity, StyleSheet, Alert,
-  KeyboardAvoidingView, Platform, ScrollView, StatusBar, TextInput,
+  KeyboardAvoidingView, Platform, ScrollView, StatusBar,
+  TextInput,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
@@ -9,20 +10,6 @@ import { useAuthStore } from "../../store/auth.store";
 import { useThemeStore } from "../../store/theme.store";
 import PrimaryButton from "../../components/ui/PrimaryButton";
 import TermsModal from "../../components/modals/TermsModal";
-
-interface FieldProps {
-  icon: string;
-  placeholder: string;
-  value: string;
-  onChangeText: (v: string) => void;
-  secureTextEntry?: boolean;
-  keyboardType?: any;
-  autoCapitalize?: any;
-  returnKeyType?: any;
-  onSubmitEditing?: () => void;
-  inputRef?: React.RefObject<TextInput>;
-  textContentType?: any;
-}
 
 export default function RegisterScreen({ navigation }: any) {
   const [displayName, setDisplayName] = useState("");
@@ -46,10 +33,10 @@ export default function RegisterScreen({ navigation }: any) {
       return;
     }
     if (password.length < 8) {
-      Alert.alert("Senha fraca", "A senha precisa ter no mínimo 8 caracteres");
+      Alert.alert("Senha fraca", "Mínimo de 8 caracteres");
       return;
     }
-    if (!/^[a-zA-Z0-9_]+$/.test(username)) {
+    if (!/^[a-zA-Z0-9_]+$/.test(username.trim())) {
       Alert.alert("Username inválido", "Use apenas letras, números e _");
       return;
     }
@@ -67,55 +54,11 @@ export default function RegisterScreen({ navigation }: any) {
       );
     } catch (e: any) {
       const msg = e?.response?.data?.message;
-      if (Array.isArray(msg)) {
-        Alert.alert("Erro de validação", msg.join("\n"));
-      } else {
-        Alert.alert("Erro", msg || "Erro ao criar conta. Tente novamente.");
-      }
+      Alert.alert("Erro", Array.isArray(msg) ? msg.join("\n") : msg || "Erro ao criar conta");
     } finally {
       setLoading(false);
     }
   }, [email, username, password, displayName, termsAccepted]);
-
-  // Campo de input sem state de focused (evita re-render e bug de teclado)
-  const Field = ({
-    icon, placeholder, value, onChangeText, secureTextEntry,
-    keyboardType, autoCapitalize, returnKeyType, onSubmitEditing,
-    inputRef, textContentType,
-  }: FieldProps) => (
-    <View style={[styles.fieldWrap, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-      <Text style={[styles.fieldIcon, { opacity: 0.5 }]}>{icon}</Text>
-      <TextInput
-        ref={inputRef}
-        style={[styles.fieldInput, { color: theme.text }]}
-        placeholder={placeholder}
-        placeholderTextColor={theme.textSecondary}
-        value={value}
-        onChangeText={onChangeText}
-        secureTextEntry={secureTextEntry}
-        keyboardType={keyboardType || "default"}
-        autoCapitalize={autoCapitalize || "none"}
-        autoCorrect={false}
-        returnKeyType={returnKeyType || "next"}
-        onSubmitEditing={onSubmitEditing}
-        textContentType={textContentType}
-        blurOnSubmit={false}
-        underlineColorAndroid="transparent"
-      />
-      {secureTextEntry !== undefined && (
-        <TouchableOpacity
-          onPress={() => setShowPass(!showPass)}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <Ionicons
-            name={showPass ? "eye-off-outline" : "eye-outline"}
-            size={18}
-            color={theme.textSecondary}
-          />
-        </TouchableOpacity>
-      )}
-    </View>
-  );
 
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
@@ -125,7 +68,6 @@ export default function RegisterScreen({ navigation }: any) {
         style={StyleSheet.absoluteFillObject}
         start={{ x: 0.3, y: 0 }} end={{ x: 0.7, y: 0.5 }}
       />
-
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -146,67 +88,101 @@ export default function RegisterScreen({ navigation }: any) {
           </View>
 
           <View style={styles.form}>
-            <Field
-              icon="👤" placeholder="Nome de exibição (opcional)"
-              value={displayName} onChangeText={setDisplayName}
-              autoCapitalize="words" returnKeyType="next"
-              onSubmitEditing={() => emailRef.current?.focus()}
-              textContentType="name"
-            />
-            <Field
-              icon="✉" placeholder="Email *"
-              value={email} onChangeText={setEmail}
-              keyboardType="email-address" returnKeyType="next"
-              inputRef={emailRef}
-              onSubmitEditing={() => usernameRef.current?.focus()}
-              textContentType="emailAddress"
-            />
-            <Field
-              icon="@" placeholder="Username * (ex: frederic)"
-              value={username} onChangeText={setUsername}
-              returnKeyType="next" inputRef={usernameRef}
-              onSubmitEditing={() => passwordRef.current?.focus()}
-              textContentType="username"
-            />
-            <Field
-              icon="🔒" placeholder="Senha * (mín. 8 caracteres)"
-              value={password} onChangeText={setPassword}
-              secureTextEntry={!showPass}
-              returnKeyType="done" inputRef={passwordRef}
-              onSubmitEditing={handleRegister}
-              textContentType="newPassword"
-            />
+            {/* Cada input é independente — sem estado compartilhado que cause re-render */}
+            <View style={[styles.field, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <Text style={styles.fieldIcon}>👤</Text>
+              <TextInput
+                style={[styles.fieldInput, { color: theme.text }]}
+                placeholder="Nome de exibição (opcional)"
+                placeholderTextColor={theme.textSecondary}
+                value={displayName}
+                onChangeText={setDisplayName}
+                autoCapitalize="words"
+                returnKeyType="next"
+                onSubmitEditing={() => emailRef.current?.focus()}
+                blurOnSubmit={false}
+                underlineColorAndroid="transparent"
+                textContentType="name"
+              />
+            </View>
 
-            {/* Termos de uso */}
-            <TouchableOpacity
-              style={styles.termsRow}
-              onPress={() => setTermsVisible(true)}
-              activeOpacity={0.7}
-            >
-              <View style={[
-                styles.checkbox,
-                { borderColor: termsAccepted ? theme.primary : theme.border },
-                termsAccepted && { backgroundColor: theme.primary },
-              ]}>
+            <View style={[styles.field, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <Text style={styles.fieldIcon}>✉</Text>
+              <TextInput
+                ref={emailRef}
+                style={[styles.fieldInput, { color: theme.text }]}
+                placeholder="Email *"
+                placeholderTextColor={theme.textSecondary}
+                value={email}
+                onChangeText={setEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+                returnKeyType="next"
+                onSubmitEditing={() => usernameRef.current?.focus()}
+                blurOnSubmit={false}
+                underlineColorAndroid="transparent"
+                textContentType="emailAddress"
+              />
+            </View>
+
+            <View style={[styles.field, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <Text style={styles.fieldIcon}>@</Text>
+              <TextInput
+                ref={usernameRef}
+                style={[styles.fieldInput, { color: theme.text }]}
+                placeholder="Username * (ex: frederic)"
+                placeholderTextColor={theme.textSecondary}
+                value={username}
+                onChangeText={setUsername}
+                autoCapitalize="none"
+                autoCorrect={false}
+                returnKeyType="next"
+                onSubmitEditing={() => passwordRef.current?.focus()}
+                blurOnSubmit={false}
+                underlineColorAndroid="transparent"
+                textContentType="username"
+              />
+            </View>
+
+            <View style={[styles.field, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <Text style={styles.fieldIcon}>🔒</Text>
+              <TextInput
+                ref={passwordRef}
+                style={[styles.fieldInput, { color: theme.text }]}
+                placeholder="Senha * (mín. 8 caracteres)"
+                placeholderTextColor={theme.textSecondary}
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry={!showPass}
+                returnKeyType="done"
+                onSubmitEditing={handleRegister}
+                blurOnSubmit={false}
+                underlineColorAndroid="transparent"
+                textContentType="newPassword"
+              />
+              <TouchableOpacity
+                onPress={() => setShowPass(v => !v)}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons name={showPass ? "eye-off-outline" : "eye-outline"} size={18} color={theme.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Termos */}
+            <TouchableOpacity style={styles.termsRow} onPress={() => setTermsVisible(true)} activeOpacity={0.7}>
+              <View style={[styles.checkbox, { borderColor: termsAccepted ? theme.primary : theme.border }, termsAccepted && { backgroundColor: theme.primary }]}>
                 {termsAccepted && <Ionicons name="checkmark" size={11} color="#fff" />}
               </View>
               <Text style={[styles.termsText, { color: theme.textSecondary }]}>
                 Li e aceito os{" "}
-                <Text style={{ color: theme.primaryLight, fontWeight: "600" }}>
-                  Termos de Uso
-                </Text>
+                <Text style={{ color: theme.primaryLight, fontWeight: "600" }}>Termos de Uso</Text>
                 {" "}e a{" "}
-                <Text style={{ color: theme.primaryLight, fontWeight: "600" }}>
-                  Política de Privacidade
-                </Text>
+                <Text style={{ color: theme.primaryLight, fontWeight: "600" }}>Política de Privacidade</Text>
               </Text>
             </TouchableOpacity>
 
-            <PrimaryButton
-              label="Criar conta"
-              onPress={handleRegister}
-              loading={loading}
-            />
+            <PrimaryButton label="Criar conta" onPress={handleRegister} loading={loading} />
 
             <View style={styles.loginRow}>
               <Text style={{ color: theme.textSecondary, fontSize: 14 }}>Já tem conta? </Text>
@@ -218,13 +194,9 @@ export default function RegisterScreen({ navigation }: any) {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* Modal de Termos */}
       <TermsModal
         visible={termsVisible}
-        onAccept={() => {
-          setTermsAccepted(true);
-          setTermsVisible(false);
-        }}
+        onAccept={() => { setTermsAccepted(true); setTermsVisible(false); }}
         onDecline={() => setTermsVisible(false)}
       />
     </View>
@@ -239,18 +211,11 @@ const styles = StyleSheet.create({
   title: { fontSize: 28, fontWeight: "800", letterSpacing: -0.5 },
   sub: { fontSize: 14 },
   form: { gap: 12 },
-  fieldWrap: {
-    flexDirection: "row", alignItems: "center",
-    borderRadius: 14, borderWidth: 1,
-    paddingHorizontal: 16, height: 54,
-  },
-  fieldIcon: { fontSize: 16, marginRight: 10 },
+  field: { flexDirection: "row", alignItems: "center", borderRadius: 14, borderWidth: 1, paddingHorizontal: 16, height: 54 },
+  fieldIcon: { fontSize: 16, marginRight: 10, opacity: 0.5 },
   fieldInput: { flex: 1, fontSize: 15, height: "100%" as any },
   termsRow: { flexDirection: "row", alignItems: "flex-start", gap: 10, marginTop: 4 },
-  checkbox: {
-    width: 20, height: 20, borderRadius: 6, borderWidth: 1.5,
-    alignItems: "center", justifyContent: "center", marginTop: 1,
-  },
+  checkbox: { width: 20, height: 20, borderRadius: 6, borderWidth: 1.5, alignItems: "center", justifyContent: "center", marginTop: 1 },
   termsText: { flex: 1, fontSize: 12, lineHeight: 18 },
   loginRow: { flexDirection: "row", justifyContent: "center", marginTop: 4 },
 });

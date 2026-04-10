@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
-  StatusBar, ActivityIndicator, RefreshControl,
+  StatusBar, RefreshControl,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { formatDistanceToNow } from "date-fns";
@@ -33,7 +33,7 @@ export default function MessagesScreen({ navigation }: any) {
     conv.participantAId === user?.id ? conv.participantB : conv.participantA;
 
   const handleBack = () => {
-    if (navigation?.canGoBack()) {
+    if (navigation?.canGoBack?.()) {
       navigation.goBack();
     } else {
       navigation?.navigate?.("Tabs", { screen: "Profile" });
@@ -43,8 +43,6 @@ export default function MessagesScreen({ navigation }: any) {
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
       <StatusBar barStyle="light-content" />
-
-      {/* Header com back button */}
       <View style={[styles.header, { borderBottomColor: theme.border, backgroundColor: theme.background }]}>
         <TouchableOpacity
           style={styles.backBtn}
@@ -55,17 +53,14 @@ export default function MessagesScreen({ navigation }: any) {
           <Ionicons name="chevron-back" size={24} color={theme.text} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: theme.text }]}>Mensagens</Text>
-        <TouchableOpacity
-          style={[styles.newBtn, { backgroundColor: theme.surface }]}
-          activeOpacity={0.7}
-        >
+        <TouchableOpacity style={[styles.iconBtn, { backgroundColor: theme.surface }]} activeOpacity={0.7}>
           <Ionicons name="create-outline" size={18} color={theme.primaryLight} />
         </TouchableOpacity>
       </View>
 
       {loading ? (
         <View style={{ padding: 16, gap: 16 }}>
-          {[1, 2, 3, 4].map(i => (
+          {[1,2,3,4].map(i => (
             <View key={i} style={{ flexDirection: "row", gap: 12, alignItems: "center" }}>
               <Skeleton width={50} height={50} borderRadius={25} />
               <View style={{ flex: 1, gap: 8 }}>
@@ -79,13 +74,7 @@ export default function MessagesScreen({ navigation }: any) {
         <FlatList
           data={conversations}
           keyExtractor={i => i.id}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={() => { setRefreshing(true); load(); }}
-              tintColor={theme.primary}
-            />
-          }
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={theme.primary} />}
           renderItem={({ item }) => {
             const other = getOther(item);
             return (
@@ -134,17 +123,11 @@ export default function MessagesScreen({ navigation }: any) {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  header: {
-    flexDirection: "row", justifyContent: "space-between", alignItems: "center",
-    paddingHorizontal: 12, paddingTop: 52, paddingBottom: 14, borderBottomWidth: 1,
-  },
+  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 12, paddingTop: 52, paddingBottom: 14, borderBottomWidth: 1 },
   backBtn: { width: 36, height: 36, alignItems: "center", justifyContent: "center" },
   headerTitle: { fontSize: 18, fontWeight: "800", letterSpacing: -0.3 },
-  newBtn: { width: 36, height: 36, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  convItem: {
-    flexDirection: "row", padding: 16, gap: 12,
-    borderBottomWidth: 1, alignItems: "center",
-  },
+  iconBtn: { width: 36, height: 36, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  convItem: { flexDirection: "row", padding: 16, gap: 12, borderBottomWidth: 1, alignItems: "center" },
   convInfo: { flex: 1 },
   convTop: { flexDirection: "row", justifyContent: "space-between", marginBottom: 4 },
   convName: { fontSize: 15, fontWeight: "600" },
