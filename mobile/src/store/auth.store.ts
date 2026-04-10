@@ -1,5 +1,5 @@
-import { create } from 'zustand';
-import { authService } from '../services/auth.service';
+import { create } from "zustand";
+import { authService } from "../services/auth.service";
 
 interface User {
   id: string;
@@ -7,8 +7,10 @@ interface User {
   username: string;
   displayName: string | null;
   avatarUrl: string | null;
+  coverUrl: string | null;
   bio: string | null;
   isVerified: boolean;
+  isPrivate: boolean;
 }
 
 interface AuthState {
@@ -19,6 +21,7 @@ interface AuthState {
   register: (email: string, username: string, password: string, displayName?: string) => Promise<void>;
   logout: () => Promise<void>;
   loadUser: () => Promise<void>;
+  setUser: (user: User) => void;
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
@@ -26,17 +29,19 @@ export const useAuthStore = create<AuthState>((set) => ({
   isLoading: true,
   isAuthenticated: false,
 
+  setUser: (user) => set({ user }),
+
   loadUser: async () => {
     try {
       const authenticated = await authService.isAuthenticated();
       if (authenticated) {
         const user = await authService.getMe();
-        set({ user, isAuthenticated: true });
+        set({ user, isAuthenticated: true, isLoading: false });
+      } else {
+        set({ user: null, isAuthenticated: false, isLoading: false });
       }
     } catch {
-      set({ user: null, isAuthenticated: false });
-    } finally {
-      set({ isLoading: false });
+      set({ user: null, isAuthenticated: false, isLoading: false });
     }
   },
 
