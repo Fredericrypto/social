@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Delete, Body, Param, Query, UseGuards, Request } from '@nestjs/common';
+import { Controller, Post, Get, Delete, Patch, Body, Param, Query, UseGuards, Request } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { PostsService } from './posts.service';
 import { CreatePostDto } from './dto/create-post.dto';
@@ -28,6 +28,13 @@ export class PostsController {
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.postsService.findById(id);
+  }
+
+  @Patch(':id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  edit(@Request() req, @Param('id') id: string, @Body() body: any) {
+    return this.postsService.edit(id, req.user.id, body);
   }
 
   @Delete(':id')

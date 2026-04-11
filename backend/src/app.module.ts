@@ -15,6 +15,7 @@ import { MessagesModule } from "./messages/messages.module";
 import { BlocksModule } from "./blocks/blocks.module";
 import { ReportsModule } from "./reports/reports.module";
 import { InvitesModule } from "./invites/invites.module";
+import { StoriesModule } from "./stories/stories.module";
 import { HealthModule } from "./health/health.module";
 import { User } from "./users/entities/user.entity";
 import { Post } from "./posts/entities/post.entity";
@@ -28,6 +29,8 @@ import { Block } from "./blocks/entities/block.entity";
 import { Conversation } from "./messages/entities/conversation.entity";
 import { Message } from "./messages/entities/message.entity";
 import { Report } from "./reports/entities/report.entity";
+import { Story } from "./stories/entities/story.entity";
+import { StoryView } from "./stories/entities/story-view.entity";
 import { TypeOrmModuleOptions } from "@nestjs/typeorm";
 
 const ENTITIES = [User, Post, Follow, Like, Comment, Notification, FeedItem, Invite, Block, Conversation, Message, Report];
@@ -69,7 +72,7 @@ const ENTITIES = [User, Post, Follow, Like, Comment, Notification, FeedItem, Inv
     AuthModule, UsersModule, PostsModule, FeedModule,
     FollowsModule, LikesModule, CommentsModule,
     NotificationsModule, MediaModule, MessagesModule,
-    BlocksModule, ReportsModule, InvitesModule, HealthModule,
+    BlocksModule, ReportsModule, InvitesModule, HealthModule, StoriesModule,
   ],
 })
 export class AppModule {}

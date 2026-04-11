@@ -49,4 +49,12 @@ export class PostsService {
     if (post.userId !== userId) throw new ForbiddenException();
     await this.postRepo.update(id, { isDeleted: true });
   }
+
+  async edit(id: string, userId: string, data: { caption?: string; isPrivate?: boolean; showLikesCount?: boolean }): Promise<Post> {
+    const post = await this.findById(id);
+    if (post.userId !== userId) throw new Error("Forbidden");
+    await this.postRepo.update(id, data);
+    return this.findById(id);
+  }
+
 }
