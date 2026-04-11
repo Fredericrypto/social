@@ -8,6 +8,11 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   app.use(helmet({ crossOriginResourcePolicy: false }));
+  // Permitir ngrok tunnel
+  app.use((req: any, res: any, next: any) => {
+    res.setHeader("ngrok-skip-browser-warning", "true");
+    next();
+  });
 
   app.enableCors({
     origin: true, // aceita qualquer origem em desenvolvimento

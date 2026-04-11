@@ -80,5 +80,14 @@ export class UsersService {
     const { password, refreshToken, ...profile } = user as any;
     return { ...profile, followersCount, followingCount, postsCount };
   }
+  async search(query: string, limit = 20) {
+    if (!query.trim()) return [];
+    return this.userRepo
+      .createQueryBuilder("user")
+      .where("user.username ILIKE :q OR user.displayName ILIKE :q", { q: `%${query}%` })
+      .andWhere("user.isActive = true")
+      .select(["user.id", "user.username", "user.displayName", "user.avatarUrl", "user.isVerified"])
+      .limit(limit)
+      .getMany();
+  }
 }
-// APPEND — não executar como arquivo separado
