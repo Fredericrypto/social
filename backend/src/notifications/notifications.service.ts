@@ -16,32 +16,40 @@ export class NotificationsService {
     actorId: string;
     referenceId?: string;
   }): Promise<void> {
-    // Não notifica a si mesmo
     if (data.recipientId === data.actorId) return;
     const notif = this.notifRepo.create(data);
     await this.notifRepo.save(notif);
   }
 
-  async getUnread(userId: string) {
-    return this.notifRepo
-      .createQueryBuilder('n')
-      .where('n.recipientId = :userId', { userId })
-      .andWhere('n.isRead = false')
-      .orderBy('n.createdAt', 'DESC')
-      .limit(50)
-      .getMany();
-  }
-
   async getAll(userId: string, page = 1, limit = 20) {
-    const [items, total] = await this.notifRepo
+    const notifications = await this.notifRepo
       .createQueryBuilder('n')
+      .leftJoin('users', 'actor', 'actor.id = n."actorId"::uuid')
+      .addSelect([
+        'actor.id',
+        'actor.username',
+        'actor.displayName',
+        'actor.avatarUrl',
+      ])
       .where('n.recipientId = :userId', { userId })
       .orderBy('n.createdAt', 'DESC')
       .skip((page - 1) * limit)
       .take(limit)
-      .getManyAndCount();
+      .getRawAndEntities();
 
-    return { notifications: items, total, page };
+    const total = await this.notifRepo.count({ where: { recipientId: userId } });
+
+    const result = notifications.entities.map((n, i) => ({
+      ...n,
+      actor: {
+        id: notifications.raw[i]?.actor_id,
+        username: notifications.raw[i]?.actor_username,
+        displayName: notifications.raw[i]?.actor_displayName,
+        avatarUrl: notifications.raw[i]?.actor_avatarUrl,
+      },
+    }));
+
+    return { notifications: result, total, page };
   }
 
   async markAllRead(userId: string): Promise<void> {

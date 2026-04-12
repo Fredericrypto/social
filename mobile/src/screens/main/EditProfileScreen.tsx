@@ -45,6 +45,7 @@ export default function EditProfileScreen({ navigation }: any) {
         avatarUrl = publicUrl;
       }
       await usersService.updateMe({ ...form, avatarUrl });
+      await loadUser();
       Alert.alert('✓ Perfil atualizado!');
       navigation.goBack();
     } catch (e: any) {

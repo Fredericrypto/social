@@ -33,7 +33,7 @@ import { Story } from "./stories/entities/story.entity";
 import { StoryView } from "./stories/entities/story-view.entity";
 import { TypeOrmModuleOptions } from "@nestjs/typeorm";
 
-const ENTITIES = [User, Post, Follow, Like, Comment, Notification, FeedItem, Invite, Block, Conversation, Message, Report];
+const ENTITIES = [User, Post, Follow, Like, Comment, Notification, Story, StoryView, FeedItem, Invite, Block, Conversation, Message, Report];
 
 @Module({
   imports: [

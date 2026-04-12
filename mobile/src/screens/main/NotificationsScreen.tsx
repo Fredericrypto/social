@@ -12,10 +12,10 @@ import Avatar from '../../components/ui/Avatar';
 import Skeleton from '../../components/ui/Skeleton';
 
 const TYPE_CONFIG: Record<string, { icon: string; color: string; label: string }> = {
-  like:    { icon: 'heart',           color: '#F43F5E', label: 'curtiu seu post' },
-  comment: { icon: 'chatbubble',      color: '#7C3AED', label: 'comentou no seu post' },
-  follow:  { icon: 'person-add',      color: '#06B6D4', label: 'começou a seguir você' },
-  mention: { icon: 'at-circle',       color: '#F59E0B', label: 'mencionou você' },
+  like:    { icon: 'heart',      color: '#F43F5E', label: 'curtiu seu post' },
+  comment: { icon: 'chatbubble', color: '#7C3AED', label: 'comentou no seu post' },
+  follow:  { icon: 'person-add', color: '#06B6D4', label: 'começou a seguir você' },
+  mention: { icon: 'at-circle',  color: '#F59E0B', label: 'mencionou você' },
 };
 
 export default function NotificationsScreen() {
@@ -37,6 +37,9 @@ export default function NotificationsScreen() {
 
   const renderItem = ({ item }: any) => {
     const cfg = TYPE_CONFIG[item.type] || TYPE_CONFIG.like;
+    const actor = item.actor;
+    const name = actor?.displayName || actor?.username || 'Alguém';
+
     return (
       <TouchableOpacity
         style={[
@@ -47,14 +50,18 @@ export default function NotificationsScreen() {
         activeOpacity={0.7}
       >
         <View style={styles.iconWrap}>
-          <Avatar size={46} />
+          <Avatar
+            uri={actor?.avatarUrl}
+            name={name}
+            size={46}
+          />
           <View style={[styles.typeIcon, { backgroundColor: cfg.color }]}>
             <Ionicons name={cfg.icon as any} size={10} color="#fff" />
           </View>
         </View>
         <View style={styles.content}>
           <Text style={[styles.text, { color: theme.text }]}>
-            <Text style={{ fontWeight: '700' }}>@{item.actorId?.slice(0, 8)}</Text>
+            <Text style={{ fontWeight: '700' }}>@{actor?.username || '...'}</Text>
             {' '}{cfg.label}
           </Text>
           <Text style={[styles.time, { color: theme.textSecondary }]}>
@@ -93,7 +100,11 @@ export default function NotificationsScreen() {
           keyExtractor={i => i.id}
           renderItem={renderItem}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={theme.primary} />
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => { setRefreshing(true); load(); }}
+              tintColor={theme.primary}
+            />
           }
           showsVerticalScrollIndicator={false}
           ListEmptyComponent={
@@ -113,9 +124,7 @@ export default function NotificationsScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  header: {
-    paddingHorizontal: 16, paddingTop: 56, paddingBottom: 14, borderBottomWidth: 1,
-  },
+  header: { paddingHorizontal: 16, paddingTop: 56, paddingBottom: 14, borderBottomWidth: 1 },
   headerTitle: { fontSize: 22, fontWeight: '800', letterSpacing: -0.3 },
   item: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1 },
   iconWrap: { position: 'relative' },

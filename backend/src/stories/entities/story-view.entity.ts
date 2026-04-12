@@ -1,6 +1,5 @@
 import {
-  Entity, PrimaryGeneratedColumn, Column, CreateDateColumn,
-  Unique,
+  Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Unique,
 } from "typeorm";
 
 @Entity("story_views")

@@ -5,12 +5,8 @@ import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
 import { IsString, IsOptional } from "class-validator";
 
 class CreateStoryDto {
-  @IsString()
-  mediaUrl: string;
-
-  @IsOptional()
-  @IsString()
-  caption?: string;
+  @IsString() mediaUrl: string;
+  @IsOptional() @IsString() caption?: string;
 }
 
 @ApiTags("stories")

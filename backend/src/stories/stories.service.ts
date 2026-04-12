@@ -7,58 +7,42 @@ import { StoryView } from "./entities/story-view.entity";
 @Injectable()
 export class StoriesService {
   constructor(
-    @InjectRepository(Story)
-    private readonly storyRepo: Repository<Story>,
-    @InjectRepository(StoryView)
-    private readonly viewRepo: Repository<StoryView>,
+    @InjectRepository(Story) private readonly storyRepo: Repository<Story>,
+    @InjectRepository(StoryView) private readonly viewRepo: Repository<StoryView>,
   ) {}
 
   async create(userId: string, mediaUrl: string, caption?: string): Promise<Story> {
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
-    const story = this.storyRepo.create({ userId, mediaUrl, caption, expiresAt });
-    return this.storyRepo.save(story);
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    return this.storyRepo.save(this.storyRepo.create({ userId, mediaUrl, caption, expiresAt }));
   }
 
-  // Busca stories de quem o usuário segue + os próprios
   async getFeedStories(userId: string): Promise<any[]> {
-    const now = new Date();
-
-    // Busca todos os stories ativos agrupados por usuário
     const stories = await this.storyRepo
       .createQueryBuilder("story")
-      .where("story.expiresAt > :now", { now })
+      .where("story.expiresAt > :now", { now: new Date() })
       .innerJoinAndSelect("story.user", "user")
       .orderBy("story.createdAt", "DESC")
       .getMany();
 
-    // Buscar quais stories o usuário já viu
     const views = await this.viewRepo.find({ where: { viewerId: userId } });
     const viewedIds = new Set(views.map(v => v.storyId));
 
-    // Agrupar por usuário
     const grouped = new Map<string, any>();
     for (const story of stories) {
-      const uid = story.userId;
-      if (!grouped.has(uid)) {
-        grouped.set(uid, {
-          user: {
-            id: story.user.id,
-            username: story.user.username,
-            displayName: story.user.displayName,
-            avatarUrl: story.user.avatarUrl,
-          },
+      if (!grouped.has(story.userId)) {
+        grouped.set(story.userId, {
+          user: { id: story.user.id, username: story.user.username, displayName: story.user.displayName, avatarUrl: story.user.avatarUrl },
           stories: [],
           hasUnviewed: false,
-          isOwn: uid === userId,
+          isOwn: story.userId === userId,
         });
       }
-      const group = grouped.get(uid);
-      const seen = viewedIds.has(story.id);
-      group.stories.push({ ...story, viewed: seen });
-      if (!seen) group.hasUnviewed = true;
+      const g = grouped.get(story.userId);
+      const viewed = viewedIds.has(story.id);
+      g.stories.push({ ...story, viewed });
+      if (!viewed) g.hasUnviewed = true;
     }
 
-    // Ordenar: próprio primeiro, depois não vistos, depois vistos
     return Array.from(grouped.values()).sort((a, b) => {
       if (a.isOwn) return -1;
       if (b.isOwn) return 1;
