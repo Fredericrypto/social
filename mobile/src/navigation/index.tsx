@@ -3,6 +3,7 @@ import { NavigationContainer, DefaultTheme, DarkTheme } from "@react-navigation/
 import { createStackNavigator } from "@react-navigation/stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { View, ActivityIndicator, StyleSheet, Text, Platform } from "react-native";
+import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useAuthStore } from "../store/auth.store";
@@ -26,19 +27,15 @@ const Tab = createBottomTabNavigator();
 function BadgeDot({ count }: { count: number }) {
   if (count === 0) return null;
   return (
-    <View style={styles.badge}>
-      <Text style={styles.badgeText}>{count > 9 ? "9+" : count}</Text>
+    <View style={s.badge}>
+      <Text style={s.badgeText}>{count > 9 ? "9+" : count}</Text>
     </View>
   );
 }
 
 function NewPostButton() {
   return (
-    <LinearGradient
-      colors={["#7C3AED", "#6D28D9"]}
-      style={styles.newPostBtn}
-      start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-    >
+    <LinearGradient colors={["#7C3AED", "#6D28D9"]} style={s.newPostBtn} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
       <Ionicons name="add" size={24} color="#fff" />
     </LinearGradient>
   );
@@ -47,12 +44,12 @@ function NewPostButton() {
 function MainTabs() {
   const { theme, isDark } = useThemeStore();
   const { unreadNotifications } = useBadges();
+  const insets = useSafeAreaInsets();
 
-  // Cores explícitas — não dependem de herança do sistema
   const bg = isDark ? "#0D0D14" : "#FFFFFF";
   const border = isDark ? "#1F1F2E" : "#EFEFEF";
-  const active = theme.primary;          // #7C3AED sempre
-  const inactive = isDark ? "#4B5563" : "#374151";  // contraste garantido no light
+  const active = theme.primary;
+  const inactive = isDark ? "#4B5563" : "#374151";
 
   return (
     <Tab.Navigator
@@ -62,10 +59,11 @@ function MainTabs() {
         tabBarStyle: {
           backgroundColor: bg,
           borderTopColor: border,
-          borderTopWidth: 1,
-          height: Platform.OS === "ios" ? 82 : 62,
-          paddingBottom: Platform.OS === "ios" ? 22 : 8,
-          paddingTop: 8,
+          borderTopWidth: 0.5,
+          // Safe area: adiciona padding do sistema + espaço visual
+          height: 50 + insets.bottom,
+          paddingBottom: insets.bottom,
+          paddingTop: 6,
           elevation: 0,
           shadowOpacity: 0,
         },
@@ -74,21 +72,18 @@ function MainTabs() {
         tabBarIcon: ({ focused, color }) => {
           if (route.name === "NewPost") return <NewPostButton />;
 
-          const iconMap: Record<string, [string, string]> = {
+          const icons: Record<string, [string, string]> = {
             Feed:          ["home",          "home-outline"],
             Explore:       ["search",        "search-outline"],
             Notifications: ["notifications", "notifications-outline"],
             Profile:       ["person",        "person-outline"],
           };
-          const [activeIcon, inactiveIcon] = iconMap[route.name] || ["apps", "apps-outline"];
-          const iconName = (focused ? activeIcon : inactiveIcon) as any;
-          const iconColor = focused ? active : inactive;
-
+          const [a, i] = icons[route.name] || ["apps", "apps-outline"];
           return (
-            <View style={styles.tabIconWrap}>
-              <Ionicons name={iconName} size={24} color={iconColor} />
+            <View style={s.iconWrap}>
+              <Ionicons name={(focused ? a : i) as any} size={24} color={focused ? active : inactive} />
               {route.name === "Notifications" && <BadgeDot count={unreadNotifications} />}
-              {focused && <View style={[styles.activeDot, { backgroundColor: active }]} />}
+              {focused && <View style={[s.dot, { backgroundColor: active }]} />}
             </View>
           );
         },
@@ -121,7 +116,6 @@ function AppContent() {
 
   useEffect(() => { loadUser(); }, []);
 
-  // Tema do NavigationContainer com cores explícitas
   const navTheme = {
     dark: isDark,
     colors: {
@@ -136,8 +130,8 @@ function AppContent() {
 
   if (isLoading) {
     return (
-      <View style={[styles.loading, { backgroundColor: theme.background }]}>
-        <LinearGradient colors={["#7C3AED", "#6D28D9"]} style={styles.loadingIcon} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
+      <View style={[s.loading, { backgroundColor: theme.background }]}>
+        <LinearGradient colors={["#7C3AED", "#6D28D9"]} style={s.loadingIcon} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
           <Text style={{ fontSize: 28, color: "#fff" }}>◈</Text>
         </LinearGradient>
         <ActivityIndicator color={theme.primary} style={{ marginTop: 24 }} />
@@ -163,18 +157,20 @@ function AppContent() {
 
 export default function Navigation() {
   return (
-    <BadgeProvider>
-      <AppContent />
-    </BadgeProvider>
+    <SafeAreaProvider>
+      <BadgeProvider>
+        <AppContent />
+      </BadgeProvider>
+    </SafeAreaProvider>
   );
 }
 
-const styles = StyleSheet.create({
+const s = StyleSheet.create({
   loading: { flex: 1, alignItems: "center", justifyContent: "center" },
   loadingIcon: { width: 72, height: 72, borderRadius: 22, alignItems: "center", justifyContent: "center" },
   newPostBtn: { width: 44, height: 44, borderRadius: 14, alignItems: "center", justifyContent: "center" },
-  tabIconWrap: { alignItems: "center", gap: 3 },
-  activeDot: { width: 4, height: 4, borderRadius: 2 },
+  iconWrap: { alignItems: "center", gap: 3 },
+  dot: { width: 4, height: 4, borderRadius: 2 },
   badge: { position: "absolute", top: -5, right: -10, minWidth: 16, height: 16, borderRadius: 8, backgroundColor: "#EF4444", alignItems: "center", justifyContent: "center", paddingHorizontal: 3 },
   badgeText: { color: "#fff", fontSize: 9, fontWeight: "700" },
 });
