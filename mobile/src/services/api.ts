@@ -1,20 +1,20 @@
 import axios from "axios";
 
-// Detecta automaticamente o ambiente:
-// - Com EXPO_PUBLIC_API_URL definido: usa ele (tunnel ou produção)
-// - Sem variável: usa o IP local direto
 const getApiUrl = () => {
   const envUrl = process.env.EXPO_PUBLIC_API_URL;
-  if (envUrl) {
-    console.log("[API] Usando URL do ambiente:", envUrl);
-    return envUrl;
-  }
-  const localUrl = "http://192.168.4.46:3000/api/v1";
-  console.log("[API] Usando IP local:", localUrl);
-  return localUrl;
+  if (envUrl) return envUrl;
+  return "http://192.168.4.46:3000/api/v1";
 };
 
 const API_URL = getApiUrl();
+
+// Erros conhecidos que não precisam de log
+const SILENT_ERRORS = [
+  'property bannerGradient should not exist',
+  'property showLikesCount should not exist',
+];
+
+const isSilent = (msg: string) => SILENT_ERRORS.some(e => msg?.includes(e));
 
 const storage = {
   async get(key: string): Promise<string | null> {
@@ -45,20 +45,22 @@ export const api = axios.create({ baseURL: API_URL, timeout: 15000 });
 api.interceptors.request.use(async (config) => {
   const token = await storage.get("accessToken");
   if (token) config.headers.Authorization = `Bearer ${token}`;
-  console.log("[API Request]", config.method?.toUpperCase(), config.url);
   return config;
 });
 
 api.interceptors.response.use(
-  (res) => {
-    console.log("[API Response]", res.status, res.config.url);
-    return res;
-  },
+  (res) => res,
   async (error) => {
     const status = error.response?.status;
     const url = error.config?.url;
-    const msg = error.response?.data?.message;
-    console.error("[API Error]", status, url, msg || error.message);
+    const msg = Array.isArray(error.response?.data?.message)
+      ? error.response.data.message.join(', ')
+      : error.response?.data?.message || error.message;
+
+    // Silenciar erros conhecidos e não críticos
+    if (!isSilent(msg) && status !== 401) {
+      console.error("[API Error]", status, url, msg);
+    }
 
     const original = error.config;
     if (status === 401 && !original._retry) {
@@ -72,7 +74,6 @@ api.interceptors.response.use(
         original.headers.Authorization = `Bearer ${data.accessToken}`;
         return api(original);
       } catch (refreshErr) {
-        console.error("[API] Refresh falhou:", refreshErr);
         await storage.delete("accessToken");
         await storage.delete("refreshToken");
       }
