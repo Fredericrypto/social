@@ -50,7 +50,7 @@ const ENTITIES = [User, Post, Follow, Like, Comment, Notification, Story, StoryV
             type: "postgres",
             url: dbUrl,
             entities: ENTITIES,
-            synchronize: false,
+            synchronize: config.get<string>("SYNC_DB") === "true",
             ssl: { rejectUnauthorized: false },
             logging: false,
           };
