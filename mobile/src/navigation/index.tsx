@@ -1,8 +1,8 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useRef } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createStackNavigator } from "@react-navigation/stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
-import { View, ActivityIndicator, StyleSheet, Text, TouchableOpacity } from "react-native";
+import { View, ActivityIndicator, StyleSheet, Text, TouchableOpacity, Animated } from "react-native";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { BlurView } from "expo-blur";
 import { Ionicons } from "@expo/vector-icons";
@@ -25,82 +25,96 @@ import SettingsScreen from "../screens/main/SettingsScreen";
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
 
-function FloatingTabBar({ state, descriptors, navigation }: any) {
-  const { isDark } = useThemeStore();
+const ICONS: Record<string, [string, string]> = {
+  Feed:          ["home",          "home-outline"         ],
+  Explore:       ["search",        "search-outline"       ],
+  Notifications: ["notifications", "notifications-outline"],
+  Profile:       ["person",        "person-outline"       ],
+};
+
+function AnimatedTabIcon({ route, focused, color }: any) {
+  const translateY = useRef(new Animated.Value(0)).current;
   const { unreadNotifications } = useBadges();
-  const insets = useSafeAreaInsets();
 
-  const blurBg = isDark ? "rgba(10,10,15,0.75)" : "rgba(255,255,255,0.75)";
-  const activeColor = "#7C3AED";
-  const inactiveColor = isDark ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.35)";
+  useEffect(() => {
+    if (focused) {
+      Animated.sequence([
+        Animated.timing(translateY, { toValue: -5, duration: 120, useNativeDriver: true }),
+        Animated.spring(translateY,  { toValue: 0,  useNativeDriver: true, friction: 6 }),
+      ]).start();
+    }
+  }, [focused]);
 
-  const ICONS: Record<string, [string, string]> = {
-    Feed:          ["home",          "home-outline"         ],
-    Explore:       ["search",        "search-outline"       ],
-    Notifications: ["notifications", "notifications-outline"],
-    Profile:       ["person",        "person-outline"       ],
-  };
+  const [activeIcon, inactiveIcon] = ICONS[route.name] || ["apps", "apps-outline"];
 
   return (
-    <View style={[s.floatingBar, { bottom: insets.bottom + 12 }]} pointerEvents="box-none">
-      {/* Glass background */}
-      <View style={[s.barBackground, { backgroundColor: blurBg }]}>
-        <BlurView intensity={80} tint={isDark ? "dark" : "light"} style={StyleSheet.absoluteFillObject} />
-      </View>
-
-      {state.routes.map((route: any, index: number) => {
-        const focused = state.index === index;
-        const onPress = () => {
-          const event = navigation.emit({ type: "tabPress", target: route.key, canPreventDefault: true });
-          if (!focused && !event.defaultPrevented) navigation.navigate(route.name);
-        };
-
-        // Botão central NewPost
-        if (route.name === "NewPost") {
-          return (
-            <TouchableOpacity key={route.key} style={s.newPostWrap} onPress={onPress} activeOpacity={0.85}>
-              <LinearGradient
-                colors={["#7C3AED", "#6D28D9"]}
-                style={s.newPostBtn}
-                start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-              >
-                <Ionicons name="add" size={26} color="#fff" />
-              </LinearGradient>
-            </TouchableOpacity>
-          );
-        }
-
-        const [activeIcon, inactiveIcon] = ICONS[route.name] || ["apps", "apps-outline"];
-        const iconColor = focused ? activeColor : inactiveColor;
-
-        return (
-          <TouchableOpacity
-            key={route.key}
-            style={s.tabBtn}
-            onPress={onPress}
-            activeOpacity={0.7}
-          >
-            <View style={[s.iconWrap, focused && s.iconWrapActive]}>
-              <Ionicons name={(focused ? activeIcon : inactiveIcon) as any} size={22} color={iconColor} />
-              {route.name === "Notifications" && unreadNotifications > 0 && (
-                <View style={s.badge}>
-                  <Text style={s.badgeText}>{unreadNotifications > 9 ? "9+" : unreadNotifications}</Text>
-                </View>
-              )}
-            </View>
-            {focused && <View style={s.activeDot} />}
-          </TouchableOpacity>
-        );
-      })}
-    </View>
+    <Animated.View style={{ transform: [{ translateY }], alignItems: "center", gap: 3 }}>
+      <Ionicons name={(focused ? activeIcon : inactiveIcon) as any} size={22} color={color} />
+      {route.name === "Notifications" && unreadNotifications > 0 && (
+        <View style={s.badge}>
+          <Text style={s.badgeText}>{unreadNotifications > 9 ? "9+" : unreadNotifications}</Text>
+        </View>
+      )}
+    </Animated.View>
   );
 }
 
 function MainTabs() {
+  const { isDark } = useThemeStore();
+  const insets = useSafeAreaInsets();
+
+  const activeColor   = "#7C3AED";
+  const inactiveColor = isDark ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.35)";
+
   return (
     <Tab.Navigator
-      tabBar={(props) => <FloatingTabBar {...props} />}
-      screenOptions={{ headerShown: false }}
+      screenOptions={({ route }) => ({
+        headerShown: false,
+        tabBarShowLabel: false,
+        tabBarActiveTintColor: activeColor,
+        tabBarInactiveTintColor: inactiveColor,
+        tabBarStyle: {
+          position: "absolute",
+          backgroundColor: "transparent",
+          borderTopWidth: 0,
+          elevation: 0,
+          shadowOpacity: 0,
+          height: 56 + insets.bottom,
+          paddingBottom: insets.bottom,
+        },
+        tabBarBackground: () => (
+          <BlurView
+            intensity={85}
+            tint={isDark ? "dark" : "light"}
+            style={[
+              StyleSheet.absoluteFillObject,
+              {
+                borderTopLeftRadius: 20,
+                borderTopRightRadius: 20,
+                overflow: "hidden",
+                borderTopWidth: 0.5,
+                borderTopColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)",
+              }
+            ]}
+          />
+        ),
+        tabBarIcon: ({ focused, color }) => {
+          if (route.name === "NewPost") {
+            return (
+              <View style={s.newPostBtn}>
+                <LinearGradient
+                  colors={["#7C3AED", "#6D28D9"]}
+                  style={s.newPostGradient}
+                  start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+                >
+                  <Ionicons name="add" size={24} color="#fff" />
+                </LinearGradient>
+              </View>
+            );
+          }
+          return <AnimatedTabIcon route={route} focused={focused} color={color} />;
+        },
+      })}
     >
       <Tab.Screen name="Feed"          component={FeedScreen}          />
       <Tab.Screen name="Explore"       component={ExploreScreen}       />
@@ -126,24 +140,20 @@ function MainStack() {
 function AppContent() {
   const { isAuthenticated, isLoading, loadUser } = useAuthStore();
   const { theme, isDark } = useThemeStore();
-
   useEffect(() => { loadUser(); }, []);
 
   const navTheme = {
     dark: isDark,
     colors: {
-      primary:      theme.primary,
-      background:   theme.background,
-      card:         isDark ? "#0D0D14" : "#FFFFFF",
-      text:         theme.text,
-      border:       "transparent",
-      notification: "#EF4444",
+      primary: theme.primary, background: theme.background,
+      card: isDark ? "#0D0D14" : "#FFFFFF",
+      text: theme.text, border: "transparent", notification: "#EF4444",
     },
   };
 
   if (isLoading) {
     return (
-      <View style={[{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: theme.background }]}>
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: theme.background }}>
         <LinearGradient colors={["#7C3AED", "#6D28D9"]} style={{ width: 72, height: 72, borderRadius: 22, alignItems: "center", justifyContent: "center" }}>
           <Text style={{ fontSize: 28, color: "#fff" }}>◈</Text>
         </LinearGradient>
@@ -179,73 +189,8 @@ export default function Navigation() {
 }
 
 const s = StyleSheet.create({
-  floatingBar: {
-    position: "absolute",
-    left: 16,
-    right: 16,
-    height: 64,
-    flexDirection: "row",
-    alignItems: "center",
-    zIndex: 999,
-  },
-  barBackground: {
-    ...StyleSheet.absoluteFillObject,
-    borderRadius: 28,
-    overflow: "hidden",
-  },
-  tabBtn: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    height: "100%",
-    gap: 3,
-  },
-  iconWrap: {
-    width: 44,
-    height: 36,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  iconWrapActive: {
-    backgroundColor: "rgba(124,58,237,0.12)",
-  },
-  activeDot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "#7C3AED",
-  },
-  badge: {
-    position: "absolute",
-    top: -3,
-    right: -3,
-    minWidth: 15,
-    height: 15,
-    borderRadius: 8,
-    backgroundColor: "#EF4444",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 3,
-  },
-  badgeText: { color: "#fff", fontSize: 9, fontWeight: "700" },
-  newPostWrap: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    height: "100%",
-    marginTop: -20,
-  },
-  newPostBtn: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#7C3AED",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.5,
-    shadowRadius: 12,
-    elevation: 8,
-  },
+  badge:         { position: "absolute", top: -6, right: -8, minWidth: 15, height: 15, borderRadius: 8, backgroundColor: "#EF4444", alignItems: "center", justifyContent: "center", paddingHorizontal: 3 },
+  badgeText:     { color: "#fff", fontSize: 9, fontWeight: "700" },
+  newPostBtn:    { alignItems: "center", justifyContent: "center" },
+  newPostGradient: { width: 44, height: 44, borderRadius: 14, alignItems: "center", justifyContent: "center" },
 });
