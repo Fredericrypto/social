@@ -363,12 +363,9 @@ export default function ProfileScreen({ navigation }: any) {
             >
               <Ionicons
                 name={tab.icon as any}
-                size={18}
+                size={20}
                 color={activeTab === tab.key ? theme.primary : theme.textSecondary}
               />
-              <Text style={[styles.tabLabel, { color: activeTab === tab.key ? theme.primary : theme.textSecondary }]}>
-                {tab.label}
-              </Text>
             </TouchableOpacity>
           ))}
         </ScrollView>

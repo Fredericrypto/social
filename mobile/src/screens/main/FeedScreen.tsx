@@ -9,7 +9,7 @@ import { useThemeStore } from '../../store/theme.store';
 import PostCard from '../../components/feed/PostCard';
 import Stories from '../../components/feed/Stories';
 
-export default function FeedScreen() {
+export default function FeedScreen({ navigation }: any) {
   const [posts, setPosts] = useState<any[]>([]);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -25,35 +25,25 @@ export default function FeedScreen() {
       setHasMore(p < data.pages);
       setPage(p);
     } catch {}
-    finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
+    finally { setLoading(false); setRefreshing(false); }
   }, []);
 
   useEffect(() => { loadFeed(1); }, []);
 
   const Header = (
     <View>
-      {/* App header */}
       <View style={[styles.appHeader, { backgroundColor: theme.background, borderBottomColor: theme.border }]}>
         <Text style={[styles.headerTitle, { color: theme.text }]}>◈ Rede</Text>
-        <View style={styles.headerActions}>
-          <TouchableOpacity style={[styles.headerBtn, { backgroundColor: theme.surface }]}>
-            <Ionicons name="search-outline" size={18} color={theme.textSecondary} />
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.headerBtn, { backgroundColor: theme.surface }]}>
-            <Ionicons name="notifications-outline" size={18} color={theme.textSecondary} />
-            <View style={[styles.notifDot, { backgroundColor: theme.primary }]} />
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity
+          style={[styles.headerBtn, { backgroundColor: theme.surface }]}
+          onPress={() => navigation?.navigate?.('Explore')}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="search-outline" size={18} color={theme.textSecondary} />
+        </TouchableOpacity>
       </View>
-
-      {/* Stories */}
       <Stories />
-
-      {/* Divider */}
-      <View style={{ height: 1, backgroundColor: theme.border, marginHorizontal: 0 }} />
+      <View style={{ height: 1, backgroundColor: theme.border }} />
     </View>
   );
 
@@ -106,20 +96,10 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   appHeader: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingHorizontal: 16, paddingTop: 52, paddingBottom: 12,
-    borderBottomWidth: 1,
+    paddingHorizontal: 16, paddingTop: 52, paddingBottom: 12, borderBottomWidth: 1,
   },
   headerTitle: { fontSize: 20, fontWeight: '800', letterSpacing: -0.3 },
-  headerActions: { flexDirection: 'row', gap: 8 },
-  headerBtn: {
-    width: 36, height: 36, borderRadius: 12,
-    alignItems: 'center', justifyContent: 'center',
-    position: 'relative',
-  },
-  notifDot: {
-    position: 'absolute', top: 6, right: 6,
-    width: 7, height: 7, borderRadius: 4,
-  },
+  headerBtn: { width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   empty: { alignItems: 'center', justifyContent: 'center', padding: 60 },
   emptyTitle: { fontSize: 18, fontWeight: '700', marginBottom: 6 },
   emptySub: { fontSize: 14, textAlign: 'center', lineHeight: 20 },
