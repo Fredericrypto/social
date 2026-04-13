@@ -16,6 +16,7 @@ import { BlocksModule } from "./blocks/blocks.module";
 import { ReportsModule } from "./reports/reports.module";
 import { InvitesModule } from "./invites/invites.module";
 import { StoriesModule } from "./stories/stories.module";
+import { SavedModule } from "./saved/saved.module";
 import { HealthModule } from "./health/health.module";
 import { User } from "./users/entities/user.entity";
 import { Post } from "./posts/entities/post.entity";
@@ -31,9 +32,10 @@ import { Message } from "./messages/entities/message.entity";
 import { Report } from "./reports/entities/report.entity";
 import { Story } from "./stories/entities/story.entity";
 import { StoryView } from "./stories/entities/story-view.entity";
+import { SavedPost } from "./saved/saved.entity";
 import { TypeOrmModuleOptions } from "@nestjs/typeorm";
 
-const ENTITIES = [User, Post, Follow, Like, Comment, Notification, Story, StoryView, FeedItem, Invite, Block, Conversation, Message, Report];
+const ENTITIES = [User, Post, Follow, Like, Comment, Notification, Story, StoryView, FeedItem, Invite, Block, Conversation, Message, Report, SavedPost];
 
 @Module({
   imports: [
@@ -72,7 +74,7 @@ const ENTITIES = [User, Post, Follow, Like, Comment, Notification, Story, StoryV
     AuthModule, UsersModule, PostsModule, FeedModule,
     FollowsModule, LikesModule, CommentsModule,
     NotificationsModule, MediaModule, MessagesModule,
-    BlocksModule, ReportsModule, InvitesModule, HealthModule, StoriesModule,
+    BlocksModule, ReportsModule, InvitesModule, HealthModule, StoriesModule, SavedModule,
   ],
 })
 export class AppModule {}

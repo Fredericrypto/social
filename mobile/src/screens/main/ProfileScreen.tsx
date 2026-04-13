@@ -11,6 +11,7 @@ import { useThemeStore } from "../../store/theme.store";
 import { api } from "../../services/api";
 import Avatar from "../../components/ui/Avatar";
 import { BadgeContext } from "../../context/BadgeContext";
+import { savedService } from "../../services/saved.service";
 
 const { width } = Dimensions.get("window");
 const GRID_SIZE = (width - 4) / 3;
@@ -124,7 +125,19 @@ export default function ProfileScreen({ navigation }: any) {
   const [stats, setStats] = useState({ postsCount: 0, followersCount: 0, followingCount: 0 });
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<ProfileTab>("posts");
+  const [savedPosts, setSavedPosts] = useState<any[]>([]);
+  const [savedLoading, setSavedLoading] = useState(false);
   const scrollX = React.useRef(new Animated.Value(0)).current;
+
+  const loadSaved = async () => {
+    if (savedPosts.length > 0) return;
+    setSavedLoading(true);
+    try {
+      const data = await savedService.getMySaved();
+      setSavedPosts(data.posts || []);
+    } catch {}
+    finally { setSavedLoading(false); }
+  };
 
   const loadData = useCallback(async () => {
     if (!user?.username) return;
@@ -168,6 +181,7 @@ export default function ProfileScreen({ navigation }: any) {
     const tabPosts = getTabPosts();
 
     if (activeTab === "saved") {
+      loadSaved();
       return (
         <View style={styles.emptyTab}>
           <View style={[styles.emptyIconWrap, { backgroundColor: theme.surface }]}>
