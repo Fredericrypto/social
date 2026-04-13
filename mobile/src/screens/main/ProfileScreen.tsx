@@ -146,10 +146,10 @@ export default function ProfileScreen({ navigation }: any) {
   useEffect(() => { loadData(); refreshBadges(); }, [loadData]);
 
   // Filtrar posts por tipo
-  const imagePosts = posts.filter(p => p.mediaUrls?.length > 0);
-  const thoughtPosts = posts.filter(p => !p.mediaUrls?.length && p.caption && !p.caption.includes("```"));
-  const codePosts = posts.filter(p => p.caption?.includes("```"));
-  const projectPosts = posts.filter(p => p.mediaUrls?.length > 0 && p.caption?.includes("\n"));
+  const imagePosts = posts.filter(p => p.postType === 'image' || (p.mediaUrls?.length > 0 && p.postType !== 'code' && p.postType !== 'project'));
+  const thoughtPosts = posts.filter(p => p.postType === 'text' || (!p.mediaUrls?.length && p.caption && !p.caption.includes("```") && p.postType !== 'code'));
+  const codePosts = posts.filter(p => p.postType === 'code' || p.caption?.includes("```"));
+  const projectPosts = posts.filter(p => p.postType === 'project');
 
   const getTabPosts = () => {
     switch (activeTab) {

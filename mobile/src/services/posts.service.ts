@@ -1,8 +1,8 @@
 import { api } from './api';
 
 export const postsService = {
-  async create(caption: string, mediaUrls: string[] = [], mediaType = 'text') {
-    const { data } = await api.post('/posts', { caption, mediaUrls, mediaType });
+  async create(caption: string, mediaUrls: string[] = [], mediaType = 'text', postType = 'text') {
+    const { data } = await api.post('/posts', { caption, mediaUrls, mediaType, postType });
     return data;
   },
 

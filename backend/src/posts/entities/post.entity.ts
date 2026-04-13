@@ -4,6 +4,8 @@ import {
 } from 'typeorm';
 import { User } from '../../users/entities/user.entity';
 
+export type PostType = 'image' | 'text' | 'code' | 'project';
+
 @Entity('posts')
 @Index(['userId', 'createdAt'])
 export class Post {
@@ -16,8 +18,11 @@ export class Post {
   @Column('text', { array: true, default: [] })
   mediaUrls: string[];
 
-  @Column({ default: 'image' })
+  @Column({ default: 'text' })
   mediaType: string;
+
+  @Column({ default: 'text' })
+  postType: PostType;
 
   @Column({ default: 0 })
   likesCount: number;

@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Post } from './entities/post.entity';
+import { Post, PostType } from './entities/post.entity';
 import { CreatePostDto } from './dto/create-post.dto';
 import { FeedService } from '../feed/feed.service';
 
@@ -14,9 +14,14 @@ export class PostsService {
   ) {}
 
   async create(userId: string, dto: CreatePostDto): Promise<Post> {
-    const post = this.postRepo.create({ ...dto, userId });
+    const post = this.postRepo.create({
+      caption: dto.caption,
+      mediaUrls: dto.mediaUrls || [],
+      mediaType: dto.mediaType || 'text',
+      postType: (dto.postType as PostType) || 'text',
+      userId,
+    });
     const saved = await this.postRepo.save(post);
-    // fan-out assíncrono: distribui para feed dos seguidores
     await this.feedService.fanOut(saved);
     return saved;
   }
@@ -40,7 +45,6 @@ export class PostsService {
       .skip((page - 1) * limit)
       .take(limit)
       .getManyAndCount();
-
     return { posts, total, page, pages: Math.ceil(total / limit) };
   }
 
@@ -52,9 +56,8 @@ export class PostsService {
 
   async edit(id: string, userId: string, data: { caption?: string; isPrivate?: boolean; showLikesCount?: boolean }): Promise<Post> {
     const post = await this.findById(id);
-    if (post.userId !== userId) throw new Error("Forbidden");
+    if (post.userId !== userId) throw new ForbiddenException();
     await this.postRepo.update(id, data);
     return this.findById(id);
   }
-
 }

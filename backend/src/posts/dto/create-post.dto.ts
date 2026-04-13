@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsArray, IsEnum } from 'class-validator';
+import { IsString, IsOptional, IsArray } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class CreatePostDto {
@@ -12,8 +12,13 @@ export class CreatePostDto {
   @IsArray()
   mediaUrls?: string[];
 
-  @ApiProperty({ required: false, enum: ['image', 'video', 'text'] })
+  @ApiProperty({ required: false })
   @IsOptional()
-  @IsEnum(['image', 'video', 'text'])
+  @IsString()
   mediaType?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  postType?: string;
 }
