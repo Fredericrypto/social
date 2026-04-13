@@ -32,6 +32,21 @@ export class User {
   coverUrl: string;
 
   @Column({ nullable: true })
+  jobTitle: string;
+
+  @Column({ nullable: true })
+  company: string;
+
+  @Column({ nullable: true })
+  website: string;
+
+  @Column('text', { array: true, default: [] })
+  skills: string[];
+
+  @Column({ nullable: true })
+  bannerGradient: string;
+
+  @Column({ nullable: true })
   googleId: string;
 
   @Column({ default: false })
@@ -42,6 +57,9 @@ export class User {
 
   @Column({ default: false })
   isPrivate: boolean;
+
+  @Column({ default: true })
+  showLikesCount: boolean;
 
   @Column({ nullable: true, type: 'text' })
   refreshToken: string | null;

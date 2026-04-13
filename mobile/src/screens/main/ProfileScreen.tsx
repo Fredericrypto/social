@@ -253,7 +253,19 @@ export default function ProfileScreen({ navigation }: any) {
         {/* Cover + header */}
         <View style={styles.coverArea}>
           <LinearGradient
-            colors={["#1a0533", "#0f1a3a", theme.background]}
+            colors={(() => {
+              const gradients: Record<string, [string,string,string]> = {
+                purple:  ['#1a0533', '#3b0764', '#0f1a3a'],
+                ocean:   ['#0c1445', '#1e3a8a', '#0891b2'],
+                sunset:  ['#1a0a00', '#7c2d12', '#dc2626'],
+                forest:  ['#052e16', '#14532d', '#065f46'],
+                night:   ['#000000', '#111827', '#1f2937'],
+                rose:    ['#1a0010', '#881337', '#be185d'],
+                gold:    ['#1c0a00', '#78350f', '#d97706'],
+                cosmic:  ['#0d0221', '#1e1b4b', '#4c1d95'],
+              };
+              return gradients[(userData as any)?.bannerGradient || 'purple'] || gradients['purple'];
+            })()}
             style={styles.cover}
             start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
           />

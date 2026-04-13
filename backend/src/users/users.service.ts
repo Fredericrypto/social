@@ -50,6 +50,12 @@ export class UsersService {
     avatarUrl?: string;
     coverUrl?: string;
     isPrivate?: boolean;
+    showLikesCount?: boolean;
+    jobTitle?: string;
+    company?: string;
+    website?: string;
+    skills?: string[];
+    bannerGradient?: string;
   }): Promise<any> {
     await this.userRepo.update(id, data);
     const user = await this.findById(id);

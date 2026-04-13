@@ -6,7 +6,19 @@ export const usersService = {
     return data;
   },
 
-  async updateMe(updates: { displayName?: string; bio?: string; avatarUrl?: string; coverUrl?: string }) {
+  async updateMe(updates: {
+    displayName?: string;
+    bio?: string;
+    avatarUrl?: string;
+    coverUrl?: string;
+    isPrivate?: boolean;
+    showLikesCount?: boolean;
+    jobTitle?: string;
+    company?: string;
+    website?: string;
+    skills?: string[];
+    bannerGradient?: string;
+  }) {
     const { data } = await api.patch('/users/me', updates);
     return data;
   },
