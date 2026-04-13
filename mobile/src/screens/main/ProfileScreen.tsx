@@ -129,6 +129,10 @@ export default function ProfileScreen({ navigation }: any) {
   const [savedLoading, setSavedLoading] = useState(false);
   const scrollX = React.useRef(new Animated.Value(0)).current;
 
+  useEffect(() => {
+    if (activeTab === "saved") loadSaved();
+  }, [activeTab]);
+
   const loadSaved = async () => {
     if (savedPosts.length > 0) return;
     setSavedLoading(true);
@@ -181,7 +185,6 @@ export default function ProfileScreen({ navigation }: any) {
     const tabPosts = getTabPosts();
 
     if (activeTab === "saved") {
-      loadSaved();
       return (
         <View style={styles.emptyTab}>
           <View style={[styles.emptyIconWrap, { backgroundColor: theme.surface }]}>
@@ -435,7 +438,7 @@ const styles = StyleSheet.create({
   editBtnText: { fontSize: 14, fontWeight: "600" },
   shareBtn: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, alignItems: "center", justifyContent: "center" },
   tabsScroll: { marginTop: 16, borderBottomWidth: 1 },
-  tabsContent: { paddingHorizontal: 8 },
+  tabsContent: { paddingHorizontal: 8, justifyContent: "space-evenly", width: "100%" },
   tabItem: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 14, paddingVertical: 12, marginHorizontal: 2 },
   tabLabel: { fontSize: 12, fontWeight: "600" },
   gridThumb: { width: GRID_SIZE, height: GRID_SIZE },

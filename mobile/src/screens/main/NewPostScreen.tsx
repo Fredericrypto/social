@@ -42,7 +42,7 @@ export default function NewPostScreen({ navigation }: any) {
 
   const pickImage = useCallback(async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ImagePicker.MediaType.Images,
       allowsEditing: true,
       aspect: [4, 5],
       quality: 0.85,

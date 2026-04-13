@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   View, FlatList, RefreshControl, ActivityIndicator,
   StyleSheet, Text, StatusBar, TouchableOpacity,
@@ -28,7 +29,7 @@ export default function FeedScreen({ navigation }: any) {
     finally { setLoading(false); setRefreshing(false); }
   }, []);
 
-  useEffect(() => { loadFeed(1); }, []);
+  useFocusEffect(useCallback(() => { loadFeed(1); }, []));
 
   const Header = (
     <View>

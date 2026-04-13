@@ -16,6 +16,7 @@ class UpdateProfileDto {
   @IsOptional() @IsArray() skills?: string[];
   @IsOptional() @IsBoolean() showLikesCount?: boolean;
   @IsOptional() @IsIn(["everyone", "followers", "nobody"]) whoCanMessage?: string;
+  @IsOptional() @IsString() bannerGradient?: string;
 }
 
 @ApiTags("users")
