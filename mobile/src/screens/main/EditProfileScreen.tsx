@@ -16,14 +16,18 @@ const { width } = Dimensions.get('window');
 
 // Gradientes disponíveis para o banner — fixos, não afetados pelo tema
 const BANNER_GRADIENTS = [
-  { id: 'purple',  colors: ['#1a0533', '#3b0764', '#0f1a3a'] as const, label: 'Roxo' },
-  { id: 'ocean',   colors: ['#0c1445', '#1e3a8a', '#0891b2'] as const, label: 'Oceano' },
-  { id: 'sunset',  colors: ['#1a0a00', '#7c2d12', '#dc2626'] as const, label: 'Pôr do sol' },
-  { id: 'forest',  colors: ['#052e16', '#14532d', '#065f46'] as const, label: 'Floresta' },
-  { id: 'night',   colors: ['#000000', '#111827', '#1f2937'] as const, label: 'Noite' },
-  { id: 'rose',    colors: ['#1a0010', '#881337', '#be185d'] as const, label: 'Rosa' },
-  { id: 'gold',    colors: ['#1c0a00', '#78350f', '#d97706'] as const, label: 'Dourado' },
-  { id: 'cosmic',  colors: ['#0d0221', '#1e1b4b', '#4c1d95'] as const, label: 'Cósmico' },
+  { id: 'purple',   colors: ['#1a0533', '#3b0764', '#0f1a3a'] as const,   label: 'Cósmico'   },
+  { id: 'ocean',    colors: ['#0c1445', '#1e3a8a', '#0891b2'] as const,   label: 'Oceano'    },
+  { id: 'sunset',   colors: ['#1a0a00', '#7c2d12', '#dc2626'] as const,   label: 'Ember'     },
+  { id: 'forest',   colors: ['#052e16', '#14532d', '#065f46'] as const,   label: 'Floresta'  },
+  { id: 'night',    colors: ['#000000', '#111827', '#1f2937'] as const,   label: 'Noite'     },
+  { id: 'rose',     colors: ['#1a0010', '#881337', '#be185d'] as const,   label: 'Rosa'      },
+  { id: 'gold',     colors: ['#1c0a00', '#78350f', '#d97706'] as const,   label: 'Dourado'   },
+  { id: 'cosmic',   colors: ['#0d0221', '#1e1b4b', '#4c1d95'] as const,   label: 'Aurora'    },
+  { id: 'pastel1',  colors: ['#e0e7ff', '#c7d2fe', '#a5b4fc'] as const,   label: 'Lavanda'   },
+  { id: 'pastel2',  colors: ['#d1fae5', '#a7f3d0', '#6ee7b7'] as const,   label: 'Menta'     },
+  { id: 'pastel3',  colors: ['#fce7f3', '#fbcfe8', '#f9a8d4'] as const,   label: 'Pétala'    },
+  { id: 'pastel4',  colors: ['#fef9c3', '#fef08a', '#fde047'] as const,   label: 'Solar'     },
 ];
 
 export default function EditProfileScreen({ navigation }: any) {
@@ -128,19 +132,19 @@ export default function EditProfileScreen({ navigation }: any) {
             start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
           >
             <TouchableOpacity
-              style={styles.changeBannerBtn}
+              style={styles.changeBgBtn}
               onPress={() => setShowGradients(!showGradients)}
               activeOpacity={0.8}
             >
               <Ionicons name="color-palette-outline" size={14} color="#fff" />
-              <Text style={styles.changeBannerText}>Mudar banner</Text>
+              <Text style={styles.changeBgText}>Fundo de tela</Text>
             </TouchableOpacity>
           </LinearGradient>
 
           {/* Seletor de gradientes */}
           {showGradients && (
             <View style={[styles.gradientPicker, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-              <Text style={[styles.gradientPickerTitle, { color: theme.textSecondary }]}>Escolha o banner</Text>
+              <Text style={[styles.gradientPickerTitle, { color: theme.textSecondary }]}>Escolha o fundo de tela</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.gradientList}>
                 {BANNER_GRADIENTS.map(g => (
                   <TouchableOpacity
@@ -261,8 +265,8 @@ const styles = StyleSheet.create({
   content: { paddingBottom: 60 },
   bannerSection: { position: 'relative', marginBottom: 60 },
   bannerPreview: { height: 140, justifyContent: 'flex-end', alignItems: 'flex-end', paddingHorizontal: 14, paddingBottom: 12 },
-  changeBannerBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(0,0,0,0.45)', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6 },
-  changeBannerText: { color: '#fff', fontSize: 12, fontWeight: '600' },
+  changeBgBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(0,0,0,0.45)', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6 },
+  changeBgText: { color: '#fff', fontSize: 12, fontWeight: '600' },
   gradientPicker: { borderBottomWidth: 1, paddingVertical: 12 },
   gradientPickerTitle: { fontSize: 11, fontWeight: '600', letterSpacing: 0.6, paddingHorizontal: 16, marginBottom: 10 },
   gradientList: { paddingHorizontal: 16, gap: 10 },

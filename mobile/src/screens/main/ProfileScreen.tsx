@@ -273,24 +273,39 @@ export default function ProfileScreen({ navigation }: any) {
             </View>
             <Text style={s.handle}>@{user?.username}</Text>
 
-            {(userData?.jobTitle || userData?.company) && (
-              <View style={s.jobRow}>
-                <Ionicons name="briefcase-outline" size={12} color="rgba(255,255,255,0.5)" />
-                <Text style={s.jobText}>{[userData.jobTitle, userData.company].filter(Boolean).join(" · ")}</Text>
-              </View>
-            )}
-
-            {user?.bio && <Text style={s.bio}>{user.bio}</Text>}
-
-            {userData?.skills?.length > 0 && (
-              <View style={s.skills}>
-                {userData.skills.slice(0, 5).map((sk: string) => (
-                  <View key={sk} style={s.skillChip}>
-                    <Text style={s.skillText}>{sk}</Text>
+              {/* Grid 2x2: bio/profissional/habilidades */}
+            <View style={s.infoGrid}>
+              {user?.bio ? (
+                <View style={s.infoCell}>
+                  <Text style={s.infoCellLabel}>bio</Text>
+                  <Text style={s.infoCellValue}>{user.bio}</Text>
+                </View>
+              ) : null}
+              {(userData?.jobTitle || userData?.company) ? (
+                <View style={s.infoCell}>
+                  <Text style={s.infoCellLabel}>trabalho</Text>
+                  <Text style={s.infoCellValue}>{[userData.jobTitle, userData.company].filter(Boolean).join(" · ")}</Text>
+                </View>
+              ) : null}
+              {userData?.website ? (
+                <View style={s.infoCell}>
+                  <Text style={s.infoCellLabel}>website</Text>
+                  <Text style={[s.infoCellValue, { color: "#A78BFA" }]}>{userData.website}</Text>
+                </View>
+              ) : null}
+              {userData?.skills?.length > 0 ? (
+                <View style={s.infoCell}>
+                  <Text style={s.infoCellLabel}>skills</Text>
+                  <View style={s.skills}>
+                    {userData.skills.slice(0, 4).map((sk: string) => (
+                      <View key={sk} style={s.skillChip}>
+                        <Text style={s.skillText}>{sk}</Text>
+                      </View>
+                    ))}
                   </View>
-                ))}
-              </View>
-            )}
+                </View>
+              ) : null}
+            </View>
           </View>
         </View>
 
@@ -365,7 +380,7 @@ const s = StyleSheet.create({
   badge: { position: "absolute", top: -4, right: -4, minWidth: 15, height: 15, borderRadius: 8, backgroundColor: "#EF4444", alignItems: "center", justifyContent: "center", paddingHorizontal: 2 },
   badgeText: { color: "#fff", fontSize: 8, fontWeight: "700" },
   avatarSection: { alignItems: "center", marginTop: 24, marginBottom: 16 },
-  glassCard: { marginHorizontal: 16, borderRadius: 20, overflow: "hidden", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)" },
+  glassCard: { marginHorizontal: 16, borderRadius: 20, overflow: "hidden" },
   glassInner: { alignItems: "center", padding: 16, gap: 4 },
   displayName: { fontSize: 22, fontWeight: "800", color: "#fff", letterSpacing: -0.4 },
   handle: { fontSize: 13, color: "rgba(255,255,255,0.5)" },
@@ -375,7 +390,7 @@ const s = StyleSheet.create({
   skills: { flexDirection: "row", flexWrap: "wrap", gap: 6, justifyContent: "center", marginTop: 8 },
   skillChip: { borderRadius: 20, borderWidth: 1, borderColor: "rgba(124,58,237,0.5)", backgroundColor: "rgba(124,58,237,0.15)", paddingHorizontal: 10, paddingVertical: 3 },
   skillText: { fontSize: 11, fontWeight: "600", color: "#A78BFA" },
-  statsRow: { flexDirection: "row", marginHorizontal: 16, marginTop: 10, borderRadius: 16, overflow: "hidden", borderWidth: 1, borderColor: "rgba(255,255,255,0.08)" },
+  statsRow: { flexDirection: "row", marginHorizontal: 16, marginTop: 10, borderRadius: 16, overflow: "hidden" },
   statItem: { flex: 1, alignItems: "center", paddingVertical: 14 },
   statValue: { fontSize: 18, fontWeight: "800", color: "#fff" },
   statLabel: { fontSize: 11, marginTop: 1, color: "rgba(255,255,255,0.5)" },
@@ -395,6 +410,10 @@ const s = StyleSheet.create({
   emptySub: { fontSize: 13, textAlign: "center" },
   createBtn: { borderRadius: 12, paddingHorizontal: 20, paddingVertical: 10, marginTop: 4 },
   createBtnText: { color: "#fff", fontWeight: "700", fontSize: 14 },
+  infoGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8, width: "100%" },
+  infoCell: { flex: 1, minWidth: "45%", backgroundColor: "rgba(255,255,255,0.05)", borderRadius: 12, padding: 10 },
+  infoCellLabel: { fontSize: 10, fontWeight: "600", color: "rgba(255,255,255,0.35)", letterSpacing: 0.6, marginBottom: 3 },
+  infoCellValue: { fontSize: 13, color: "rgba(255,255,255,0.8)", lineHeight: 18 },
   thoughtCard: { borderRadius: 16, borderWidth: 1, borderColor: "rgba(255,255,255,0.08)", padding: 14, marginBottom: 8, overflow: "hidden" },
   codeCard: { borderRadius: 12, overflow: "hidden", marginBottom: 8, backgroundColor: "#1E1E2E" },
   codeTopBar: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 12, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: "#313244" },
