@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createStackNavigator } from "@react-navigation/stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
-import { View, ActivityIndicator, StyleSheet, Text, TouchableOpacity, Animated } from "react-native";
+import { View, ActivityIndicator, StyleSheet, Text, Animated } from "react-native";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { BlurView } from "expo-blur";
 import { Ionicons } from "@expo/vector-icons";
@@ -10,20 +10,24 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useAuthStore } from "../store/auth.store";
 import { useThemeStore } from "../store/theme.store";
 import { BadgeProvider, useBadges } from "../context/BadgeContext";
-import LoginScreen from "../screens/auth/LoginScreen";
-import RegisterScreen from "../screens/auth/RegisterScreen";
-import FeedScreen from "../screens/main/FeedScreen";
-import ProfileScreen from "../screens/main/ProfileScreen";
-import NewPostScreen from "../screens/main/NewPostScreen";
-import MessagesScreen from "../screens/main/MessagesScreen";
-import ChatScreen from "../screens/main/ChatScreen";
-import EditProfileScreen from "../screens/main/EditProfileScreen";
-import ExploreScreen from "../screens/main/ExploreScreen";
+
+import LoginScreen         from "../screens/auth/LoginScreen";
+import RegisterScreen      from "../screens/auth/RegisterScreen";
+import FeedScreen          from "../screens/main/FeedScreen";
+import ProfileScreen       from "../screens/main/ProfileScreen";
+import NewPostScreen       from "../screens/main/NewPostScreen";
+import MessagesScreen      from "../screens/main/MessagesScreen";
+import ChatScreen          from "../screens/main/ChatScreen";
+import EditProfileScreen   from "../screens/main/EditProfileScreen";
+import ExploreScreen       from "../screens/main/ExploreScreen";
 import NotificationsScreen from "../screens/main/NotificationsScreen";
-import SettingsScreen from "../screens/main/SettingsScreen";
+import SettingsScreen      from "../screens/main/SettingsScreen";
+import FollowersListScreen  from "../screens/main/FollowersListScreen";
+import UserProfileScreen   from "../screens/main/UserProfileScreen";
+import FlashEditorScreen   from "../screens/main/FlashEditorScreen";
 
 const Stack = createStackNavigator();
-const Tab = createBottomTabNavigator();
+const Tab   = createBottomTabNavigator();
 
 const ICONS: Record<string, [string, string]> = {
   Feed:          ["home",          "home-outline"         ],
@@ -39,16 +43,15 @@ function AnimatedTabIcon({ route, focused, color }: any) {
   useEffect(() => {
     if (focused) {
       Animated.sequence([
-        Animated.timing(translateY, { toValue: -5, duration: 120, useNativeDriver: true }),
-        Animated.spring(translateY,  { toValue: 0,  useNativeDriver: true, friction: 6 }),
+        Animated.timing(translateY, { toValue: -5, duration: 110, useNativeDriver: true }),
+        Animated.spring(translateY,  { toValue: 0,  useNativeDriver: true, friction: 5, tension: 180 }),
       ]).start();
     }
   }, [focused]);
 
   const [activeIcon, inactiveIcon] = ICONS[route.name] || ["apps", "apps-outline"];
-
   return (
-    <Animated.View style={{ transform: [{ translateY }], alignItems: "center", gap: 3 }}>
+    <Animated.View style={{ transform: [{ translateY }], alignItems: "center" }}>
       <Ionicons name={(focused ? activeIcon : inactiveIcon) as any} size={22} color={color} />
       {route.name === "Notifications" && unreadNotifications > 0 && (
         <View style={s.badge}>
@@ -60,19 +63,16 @@ function AnimatedTabIcon({ route, focused, color }: any) {
 }
 
 function MainTabs() {
-  const { isDark } = useThemeStore();
+  const { isDark, theme } = useThemeStore();
   const insets = useSafeAreaInsets();
-
-  const activeColor   = "#7C3AED";
-  const inactiveColor = isDark ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.35)";
 
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarShowLabel: false,
-        tabBarActiveTintColor: activeColor,
-        tabBarInactiveTintColor: inactiveColor,
+        tabBarActiveTintColor:   theme.primary,
+        tabBarInactiveTintColor: isDark ? "rgba(255,255,255,0.38)" : "rgba(0,0,0,0.32)",
         tabBarStyle: {
           position: "absolute",
           backgroundColor: "transparent",
@@ -84,18 +84,15 @@ function MainTabs() {
         },
         tabBarBackground: () => (
           <BlurView
-            intensity={85}
+            intensity={88}
             tint={isDark ? "dark" : "light"}
-            style={[
-              StyleSheet.absoluteFillObject,
-              {
-                borderTopLeftRadius: 20,
-                borderTopRightRadius: 20,
-                overflow: "hidden",
-                borderTopWidth: 0.5,
-                borderTopColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)",
-              }
-            ]}
+            style={[StyleSheet.absoluteFillObject, {
+              borderTopLeftRadius: 22,
+              borderTopRightRadius: 22,
+              overflow: "hidden",
+              borderTopWidth: StyleSheet.hairlineWidth,
+              borderTopColor: theme.border,
+            }]}
           />
         ),
         tabBarIcon: ({ focused, color }) => {
@@ -103,7 +100,7 @@ function MainTabs() {
             return (
               <View style={s.newPostBtn}>
                 <LinearGradient
-                  colors={["#7C3AED", "#6D28D9"]}
+                  colors={[theme.primary, theme.primaryLight]}
                   style={s.newPostGradient}
                   start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
                 >
@@ -128,12 +125,35 @@ function MainTabs() {
 function MainStack() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false, animationEnabled: true }}>
-      <Stack.Screen name="Tabs"        component={MainTabs}          />
-      <Stack.Screen name="Chat"        component={ChatScreen}        options={{ gestureEnabled: true }} />
-      <Stack.Screen name="EditProfile" component={EditProfileScreen} options={{ gestureEnabled: true }} />
-      <Stack.Screen name="Messages"    component={MessagesScreen}    options={{ gestureEnabled: true }} />
-      <Stack.Screen name="Settings"    component={SettingsScreen}    options={{ gestureEnabled: true }} />
+      <Stack.Screen name="Tabs"          component={MainTabs}            />
+      <Stack.Screen name="Chat"          component={ChatScreen}          options={{ gestureEnabled: true }} />
+      <Stack.Screen name="EditProfile"   component={EditProfileScreen}   options={{ gestureEnabled: true }} />
+      <Stack.Screen name="Messages"      component={MessagesScreen}      options={{ gestureEnabled: true }} />
+      <Stack.Screen name="Settings"      component={SettingsScreen}      options={{ gestureEnabled: true }} />
+      <Stack.Screen name="FollowersList" component={FollowersListScreen} options={{ gestureEnabled: true }} />
+      <Stack.Screen name="UserProfile"   component={UserProfileScreen}   options={{ gestureEnabled: true }} />
+      <Stack.Screen name="FlashEditor"   component={FlashEditorScreen}   options={{ gestureEnabled: true, presentation: "fullScreenModal" }} />
     </Stack.Navigator>
+  );
+}
+
+// Auth Stack — cores FIXAS dark, nunca muda com o tema
+function AuthStack() {
+  const AUTH_THEME = {
+    dark: true,
+    colors: {
+      primary: "#7C3AED", background: "#0A0A0F",
+      card: "#0A0A0F", text: "#F0F0F5",
+      border: "transparent", notification: "#EF4444",
+    },
+  };
+  return (
+    <NavigationContainer theme={AUTH_THEME}>
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="Login"    component={LoginScreen}    />
+        <Stack.Screen name="Register" component={RegisterScreen} />
+      </Stack.Navigator>
+    </NavigationContainer>
   );
 }
 
@@ -142,37 +162,32 @@ function AppContent() {
   const { theme, isDark } = useThemeStore();
   useEffect(() => { loadUser(); }, []);
 
-  const navTheme = {
+  const appNavTheme = {
     dark: isDark,
     colors: {
       primary: theme.primary, background: theme.background,
-      card: isDark ? "#0D0D14" : "#FFFFFF",
-      text: theme.text, border: "transparent", notification: "#EF4444",
+      card: theme.surface, text: theme.text,
+      border: "transparent", notification: "#EF4444",
     },
   };
 
   if (isLoading) {
     return (
-      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: theme.background }}>
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#0A0A0F" }}>
         <LinearGradient colors={["#7C3AED", "#6D28D9"]} style={{ width: 72, height: 72, borderRadius: 22, alignItems: "center", justifyContent: "center" }}>
           <Text style={{ fontSize: 28, color: "#fff" }}>◈</Text>
         </LinearGradient>
-        <ActivityIndicator color={theme.primary} style={{ marginTop: 24 }} />
+        <ActivityIndicator color="#7C3AED" style={{ marginTop: 24 }} />
       </View>
     );
   }
 
+  if (!isAuthenticated) return <AuthStack />;
+
   return (
-    <NavigationContainer theme={navTheme}>
+    <NavigationContainer theme={appNavTheme}>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
-        {isAuthenticated ? (
-          <Stack.Screen name="Main" component={MainStack} />
-        ) : (
-          <>
-            <Stack.Screen name="Login"    component={LoginScreen}    />
-            <Stack.Screen name="Register" component={RegisterScreen} />
-          </>
-        )}
+        <Stack.Screen name="Main" component={MainStack} />
       </Stack.Navigator>
     </NavigationContainer>
   );
@@ -189,8 +204,8 @@ export default function Navigation() {
 }
 
 const s = StyleSheet.create({
-  badge:         { position: "absolute", top: -6, right: -8, minWidth: 15, height: 15, borderRadius: 8, backgroundColor: "#EF4444", alignItems: "center", justifyContent: "center", paddingHorizontal: 3 },
-  badgeText:     { color: "#fff", fontSize: 9, fontWeight: "700" },
-  newPostBtn:    { alignItems: "center", justifyContent: "center" },
-  newPostGradient: { width: 44, height: 44, borderRadius: 14, alignItems: "center", justifyContent: "center" },
+  badge:           { position: "absolute", top: -6, right: -8, minWidth: 15, height: 15, borderRadius: 8, backgroundColor: "#EF4444", alignItems: "center", justifyContent: "center", paddingHorizontal: 3 },
+  badgeText:       { color: "#fff", fontSize: 9, fontWeight: "700" },
+  newPostBtn:      { alignItems: "center", justifyContent: "center" },
+  newPostGradient: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
 });
