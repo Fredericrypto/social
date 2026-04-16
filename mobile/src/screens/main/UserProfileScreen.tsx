@@ -161,7 +161,7 @@ export default function UserProfileScreen({ route, navigation }: any) {
     try {
       // Cria ou abre conversa existente
       const res = await api.post("/messages/conversations", {
-        participantId: userData?.id,
+        userId: userData?.id,
       });
       const conversationId = res.data?.id || res.data?.conversationId;
       navigation.navigate("Chat", { conversationId, username: userData?.username });

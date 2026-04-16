@@ -1,34 +1,30 @@
 import {
   Controller, Get, Patch, Body, Param, Query,
-  UseGuards, Request,
+  UseGuards, Request, Optional,
 } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { UsersService } from "./users.service";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
+import { OptionalJwtGuard } from "../auth/guards/optional-jwt.guard";
 import {
-  IsOptional, IsString, IsBoolean, IsArray,
-  IsIn, IsInt, Min, Max,
+  IsOptional, IsString, IsBoolean, IsArray, IsIn,
 } from "class-validator";
 
 class UpdateProfileDto {
-  @IsOptional() @IsString()  displayName?:          string;
-  @IsOptional() @IsString()  bio?:                  string;
-  @IsOptional() @IsString()  avatarUrl?:            string;
-  @IsOptional() @IsString()  coverUrl?:             string;
-  @IsOptional() @IsBoolean() isPrivate?:            boolean;
-  @IsOptional() @IsString()  jobTitle?:             string;
-  @IsOptional() @IsString()  company?:              string;
-  @IsOptional() @IsString()  website?:              string;
-  @IsOptional() @IsArray()   skills?:               string[];
-  @IsOptional() @IsBoolean() showLikesCount?:       boolean;
+  @IsOptional() @IsString()  displayName?:           string;
+  @IsOptional() @IsString()  bio?:                   string;
+  @IsOptional() @IsString()  avatarUrl?:             string;
+  @IsOptional() @IsString()  coverUrl?:              string;
+  @IsOptional() @IsBoolean() isPrivate?:             boolean;
+  @IsOptional() @IsString()  jobTitle?:              string;
+  @IsOptional() @IsString()  company?:               string;
+  @IsOptional() @IsString()  website?:               string;
+  @IsOptional() @IsArray()   skills?:                string[];
+  @IsOptional() @IsBoolean() showLikesCount?:        boolean;
   @IsOptional() @IsIn(["everyone", "followers", "nobody"]) whoCanMessage?: string;
-  @IsOptional() @IsString()  bannerGradient?:       string;
-
-  // Early Adopter Badge
+  @IsOptional() @IsString()  bannerGradient?:        string;
   @IsOptional() @IsBoolean() showEarlyAdopterBadge?: boolean;
-
-  // Push Notifications
-  @IsOptional() @IsString()  expoPushToken?:        string | null;
+  @IsOptional() @IsString()  expoPushToken?:         string | null;
 }
 
 @ApiTags("users")
@@ -46,13 +42,17 @@ export class UsersController {
   }
 
   @Get("search")
-  search(@Query("q") q: string) {
-    return this.usersService.search(q || "");
+  @UseGuards(OptionalJwtGuard)
+  search(@Query("q") q: string, @Request() req) {
+    const requestingUserId = req.user?.id;
+    return this.usersService.search(q || "", 20, requestingUserId);
   }
 
   @Get(":username")
-  getProfile(@Param("username") username: string) {
-    return this.usersService.getProfile(username);
+  @UseGuards(OptionalJwtGuard)
+  getProfile(@Param("username") username: string, @Request() req) {
+    const requestingUserId = req.user?.id;
+    return this.usersService.getProfile(username, requestingUserId);
   }
 
   @Patch("me")
