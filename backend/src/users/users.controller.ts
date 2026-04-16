@@ -1,22 +1,34 @@
-import { Controller, Get, Patch, Body, Param, Query, UseGuards, Request } from "@nestjs/common";
+import {
+  Controller, Get, Patch, Body, Param, Query,
+  UseGuards, Request,
+} from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { UsersService } from "./users.service";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
-import { IsOptional, IsString, IsBoolean, IsArray, IsIn } from "class-validator";
+import {
+  IsOptional, IsString, IsBoolean, IsArray,
+  IsIn, IsInt, Min, Max,
+} from "class-validator";
 
 class UpdateProfileDto {
-  @IsOptional() @IsString() displayName?: string;
-  @IsOptional() @IsString() bio?: string;
-  @IsOptional() @IsString() avatarUrl?: string;
-  @IsOptional() @IsString() coverUrl?: string;
-  @IsOptional() @IsBoolean() isPrivate?: boolean;
-  @IsOptional() @IsString() jobTitle?: string;
-  @IsOptional() @IsString() company?: string;
-  @IsOptional() @IsString() website?: string;
-  @IsOptional() @IsArray() skills?: string[];
-  @IsOptional() @IsBoolean() showLikesCount?: boolean;
+  @IsOptional() @IsString()  displayName?:          string;
+  @IsOptional() @IsString()  bio?:                  string;
+  @IsOptional() @IsString()  avatarUrl?:            string;
+  @IsOptional() @IsString()  coverUrl?:             string;
+  @IsOptional() @IsBoolean() isPrivate?:            boolean;
+  @IsOptional() @IsString()  jobTitle?:             string;
+  @IsOptional() @IsString()  company?:              string;
+  @IsOptional() @IsString()  website?:              string;
+  @IsOptional() @IsArray()   skills?:               string[];
+  @IsOptional() @IsBoolean() showLikesCount?:       boolean;
   @IsOptional() @IsIn(["everyone", "followers", "nobody"]) whoCanMessage?: string;
-  @IsOptional() @IsString() bannerGradient?: string;
+  @IsOptional() @IsString()  bannerGradient?:       string;
+
+  // Early Adopter Badge
+  @IsOptional() @IsBoolean() showEarlyAdopterBadge?: boolean;
+
+  // Push Notifications
+  @IsOptional() @IsString()  expoPushToken?:        string | null;
 }
 
 @ApiTags("users")

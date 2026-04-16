@@ -61,6 +61,21 @@ export class User {
   @Column({ default: true })
   showLikesCount: boolean;
 
+  // ── Early Adopter Badge ──────────────────────────────────────────────────
+  // Número de inscrição (1–1000). NULL = não é early adopter.
+  // Atribuído automaticamente pelo trigger PostgreSQL na criação do usuário.
+  @Column({ nullable: true, type: 'int', unique: true })
+  earlyAdopterNumber: number | null;
+
+  // Preferência de exibição da badge no perfil
+  @Column({ default: true })
+  showEarlyAdopterBadge: boolean;
+
+  // ── Push Notifications ───────────────────────────────────────────────────
+  // Token Expo Push — registrado pelo app após permissão concedida
+  @Column({ nullable: true, type: 'text' })
+  expoPushToken: string | null;
+
   @Column({ nullable: true, type: 'text' })
   refreshToken: string | null;
 

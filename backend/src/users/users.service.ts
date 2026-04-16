@@ -45,17 +45,19 @@ export class UsersService {
   }
 
   async updateProfile(id: string, data: {
-    displayName?: string;
-    bio?: string;
-    avatarUrl?: string;
-    coverUrl?: string;
-    isPrivate?: boolean;
-    showLikesCount?: boolean;
-    jobTitle?: string;
-    company?: string;
-    website?: string;
-    skills?: string[];
-    bannerGradient?: string;
+    displayName?:          string;
+    bio?:                  string;
+    avatarUrl?:            string;
+    coverUrl?:             string;
+    isPrivate?:            boolean;
+    showLikesCount?:       boolean;
+    showEarlyAdopterBadge?: boolean;
+    jobTitle?:             string;
+    company?:              string;
+    website?:              string;
+    skills?:               string[];
+    bannerGradient?:       string;
+    expoPushToken?:        string | null;
   }): Promise<any> {
     await this.userRepo.update(id, data);
     const user = await this.findById(id);
@@ -76,7 +78,6 @@ export class UsersService {
     const user = await this.userRepo.findOne({ where: { username } });
     if (!user) throw new NotFoundException("Usuário não encontrado");
 
-    // Contar via queries separadas — sem depender de @OneToMany na entity
     const [followersCount, followingCount, postsCount] = await Promise.all([
       this.userRepo.manager.count("follows", { where: { followingId: user.id } }),
       this.userRepo.manager.count("follows", { where: { followerId: user.id } }),
@@ -86,6 +87,7 @@ export class UsersService {
     const { password, refreshToken, ...profile } = user as any;
     return { ...profile, followersCount, followingCount, postsCount };
   }
+
   async search(query: string, limit = 20) {
     if (!query.trim()) return [];
     return this.userRepo
