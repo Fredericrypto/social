@@ -13,10 +13,12 @@ import Animated, {
 import { BlurView } from "expo-blur";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useFocusEffect } from "@react-navigation/native";
 import { useAuthStore } from "../../store/auth.store";
 import { useThemeStore } from "../../store/theme.store";
 import { api } from "../../services/api";
 import Avatar from "../../components/ui/Avatar";
+import EarlyAdopterBadge from "../../components/ui/EarlyAdopterBadge";
 
 const { width } = Dimensions.get("window");
 const GRID_SIZE = (width - 4) / 3;
@@ -116,6 +118,15 @@ export default function UserProfileScreen({ route, navigation }: any) {
   const scrollHandler = useAnimatedScrollHandler({
     onScroll: (e) => { scrollY.value = e.contentOffset.y; },
   });
+
+  // Reseta scroll e tab ao sair da tela (voltar = estado limpo)
+  useFocusEffect(useCallback(() => {
+    return () => {
+      scrollY.value = 0;
+      scrollRef.current?.scrollTo?.({ y: 0, animated: false });
+      setActiveTab("posts");
+    };
+  }, []));
 
   // ── Data ───────────────────────────────────────────────────────────────
   const [userData,  setUserData]  = useState<UserData | null>(null);
@@ -460,7 +471,7 @@ export default function UserProfileScreen({ route, navigation }: any) {
             {/* Nome + handle + botão follow */}
             <View style={[s.identityRow, { paddingHorizontal: 20 }]}>
               <View style={{ flex: 1 }}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                   <Text style={[s.displayName, { color: theme.text }]} numberOfLines={1}>
                     {userData?.displayName || userData?.username}
                   </Text>
@@ -469,6 +480,9 @@ export default function UserProfileScreen({ route, navigation }: any) {
                   )}
                   {userData?.isPrivate && (
                     <Ionicons name="lock-closed" size={13} color={theme.textTertiary} />
+                  )}
+                  {(userData?.earlyAdopterNumber && userData?.showEarlyAdopterBadge) && (
+                    <EarlyAdopterBadge number={userData.earlyAdopterNumber} size="sm" />
                   )}
                 </View>
                 <Text style={[s.handle, { color: theme.textSecondary }]}>@{userData?.username}</Text>
@@ -536,7 +550,6 @@ export default function UserProfileScreen({ route, navigation }: any) {
         {/* ── Tabs sticky ────────────────────────────────────────────────── */}
         <Animated.View
           style={[s.tabsBar, { borderBottomColor: theme.border, borderTopColor: theme.border }, tabsAnimStyle]}
-          pointerEvents="box-none"
         >
           <BlurView intensity={88} tint={glassBlur} style={StyleSheet.absoluteFillObject} />
           {TABS.map(tab => (

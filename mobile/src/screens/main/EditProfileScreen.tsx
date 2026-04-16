@@ -2,11 +2,8 @@ import React, { useState } from "react";
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
   ScrollView, StatusBar, Alert, ActivityIndicator, Switch,
-  Dimensions, Modal,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
-import { BlurView } from "expo-blur";
 import * as ImagePicker from "expo-image-picker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeStore } from "../../store/theme.store";
@@ -14,80 +11,35 @@ import { useAuthStore } from "../../store/auth.store";
 import { usersService } from "../../services/users.service";
 import { postsService } from "../../services/posts.service";
 import Avatar from "../../components/ui/Avatar";
-
-const { width, height } = Dimensions.get("window");
-
-const BANNER_GRADIENTS = [
-  { id: "purple",  colors: ["#1a0533", "#3b0764", "#0f1a3a"] as const, label: "Cósmico"  },
-  { id: "ocean",   colors: ["#0c1445", "#1e3a8a", "#0891b2"] as const, label: "Oceano"   },
-  { id: "sunset",  colors: ["#1a0a00", "#7c2d12", "#dc2626"] as const, label: "Ember"    },
-  { id: "forest",  colors: ["#052e16", "#14532d", "#065f46"] as const, label: "Floresta" },
-  { id: "night",   colors: ["#000000", "#111827", "#1f2937"] as const, label: "Noite"    },
-  { id: "rose",    colors: ["#1a0010", "#881337", "#be185d"] as const, label: "Rosa"     },
-  { id: "gold",    colors: ["#1c0a00", "#78350f", "#d97706"] as const, label: "Dourado"  },
-  { id: "cosmic",  colors: ["#0d0221", "#1e1b4b", "#4c1d95"] as const, label: "Aurora"   },
-  { id: "pastel1", colors: ["#e0e7ff", "#c7d2fe", "#a5b4fc"] as const, label: "Lavanda"  },
-  { id: "pastel2", colors: ["#d1fae5", "#a7f3d0", "#6ee7b7"] as const, label: "Menta"    },
-  { id: "pastel3", colors: ["#fce7f3", "#fbcfe8", "#f9a8d4"] as const, label: "Pétala"   },
-  { id: "pastel4", colors: ["#fef9c3", "#fef08a", "#fde047"] as const, label: "Solar"    },
-];
-
-const PASTEL_IDS = ["pastel1", "pastel2", "pastel3", "pastel4"];
+import EarlyAdopterBadge from "../../components/ui/EarlyAdopterBadge";
 
 export default function EditProfileScreen({ navigation }: any) {
   const { theme, isDark } = useThemeStore();
   const { user, loadUser } = useAuthStore() as any;
-  const userData    = user as any;
-  const insets      = useSafeAreaInsets();
+  const userData = user as any;
+  const insets   = useSafeAreaInsets();
 
   const [form, setForm] = useState({
-    displayName:    userData?.displayName    || "",
-    bio:            userData?.bio            || "",
-    jobTitle:       userData?.jobTitle       || "",
-    company:        userData?.company        || "",
-    website:        userData?.website        || "",
-    skillsText:     (userData?.skills || []).join(", "),
-    isPrivate:      userData?.isPrivate      || false,
-    showLikesCount: userData?.showLikesCount ?? true,
-    bannerGradient: userData?.bannerGradient || "purple",
+    displayName:          userData?.displayName          || "",
+    bio:                  userData?.bio                  || "",
+    jobTitle:             userData?.jobTitle             || "",
+    company:              userData?.company              || "",
+    website:              userData?.website              || "",
+    skillsText:           (userData?.skills || []).join(", "),
+    isPrivate:            userData?.isPrivate            || false,
+    showLikesCount:       userData?.showLikesCount       ?? true,
+    showEarlyAdopterBadge: userData?.showEarlyAdopterBadge ?? true,
   });
-
-  // Estado de sessão do modal — descartável
-  const [modalOpen,    setModalOpen]    = useState(false);
-  const [previewKey,   setPreviewKey]   = useState(form.bannerGradient);
 
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [loading,   setLoading]   = useState(false);
 
   const set = (k: string) => (v: any) => setForm(f => ({ ...f, [k]: v }));
 
-  const selectedGradient = BANNER_GRADIENTS.find(g => g.id === form.bannerGradient) || BANNER_GRADIENTS[0];
-  const previewGradient  = BANNER_GRADIENTS.find(g => g.id === previewKey)           || BANNER_GRADIENTS[0];
-
-  // Abre modal: preview começa com o valor salvo
-  const openModal = () => {
-    setPreviewKey(form.bannerGradient);
-    setModalOpen(true);
-  };
-
-  // Confirma: aplica o preview ao form real
-  const confirmGradient = () => {
-    set("bannerGradient")(previewKey);
-    setModalOpen(false);
-  };
-
-  // Descarta: fecha sem salvar
-  const cancelGradient = () => {
-    setPreviewKey(form.bannerGradient); // reset visual
-    setModalOpen(false);
-  };
-
   const pickAvatar = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaType.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.85,
+      allowsEditing: true, aspect: [1, 1], quality: 0.85,
     });
     if (!result.canceled) setAvatarUri(result.assets[0].uri);
   };
@@ -109,15 +61,15 @@ export default function EditProfileScreen({ navigation }: any) {
         .filter((s: string) => s.length > 0);
 
       await usersService.updateMe({
-        displayName:    form.displayName,
-        bio:            form.bio,
-        jobTitle:       form.jobTitle,
-        company:        form.company,
-        website:        form.website,
+        displayName:          form.displayName,
+        bio:                  form.bio,
+        jobTitle:             form.jobTitle,
+        company:              form.company,
+        website:              form.website,
         skills,
-        isPrivate:      form.isPrivate,
-        showLikesCount: form.showLikesCount,
-        bannerGradient: form.bannerGradient,
+        isPrivate:            form.isPrivate,
+        showLikesCount:       form.showLikesCount,
+        showEarlyAdopterBadge: form.showEarlyAdopterBadge,
         avatarUrl,
       });
       await loadUser();
@@ -131,14 +83,13 @@ export default function EditProfileScreen({ navigation }: any) {
   };
 
   const currentAvatar = avatarUri || userData?.avatarUrl;
-  const isPasstel = (id: string) => PASTEL_IDS.includes(id);
 
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
-      <StatusBar barStyle="light-content" />
+      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
 
       {/* Header */}
-      <View style={[styles.header, { paddingTop: insets.top + 12, borderBottomColor: theme.border, backgroundColor: theme.background }]}>
+      <View style={[styles.header, { paddingTop: insets.top + 8, borderBottomColor: theme.border, backgroundColor: theme.background }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
           <Ionicons name="close" size={22} color={theme.text} />
         </TouchableOpacity>
@@ -153,59 +104,44 @@ export default function EditProfileScreen({ navigation }: any) {
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
 
-        {/* Banner preview atual (valor confirmado) */}
-        <View style={styles.bannerSection}>
-          <LinearGradient
-            colors={selectedGradient.colors}
-            style={styles.bannerPreview}
-            start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-          >
-            <TouchableOpacity style={styles.changeBgBtn} onPress={openModal} activeOpacity={0.8}>
-              <Ionicons name="color-palette-outline" size={14} color="#fff" />
-              <Text style={styles.changeBgText}>Fundo de tela</Text>
-            </TouchableOpacity>
-          </LinearGradient>
-
-          {/* Avatar sobre o banner */}
-          <View style={styles.avatarWrapper}>
-            <Avatar uri={currentAvatar} name={form.displayName || userData?.username} size={88} showRing />
-            <TouchableOpacity style={[styles.editAvatarBtn, { backgroundColor: theme.primary }]} onPress={pickAvatar}>
+        {/* Avatar */}
+        <View style={styles.avatarSection}>
+          <TouchableOpacity onPress={pickAvatar} activeOpacity={0.8} style={styles.avatarWrap}>
+            <Avatar uri={currentAvatar} name={form.displayName || userData?.username} size={88} ring="default" />
+            <View style={[styles.editAvatarBtn, { backgroundColor: theme.primary }]}>
               <Ionicons name="camera" size={14} color="#fff" />
-            </TouchableOpacity>
-          </View>
+            </View>
+          </TouchableOpacity>
+          <Text style={[styles.avatarHint, { color: theme.textSecondary }]}>Toque para alterar a foto</Text>
         </View>
 
-        {/* Campos básicos */}
+        {/* Campos */}
         <View style={styles.form}>
+
+          {/* Básico */}
           <Text style={[styles.sectionLabel, { color: theme.textSecondary }]}>BÁSICO</Text>
           <View style={[styles.fieldGroup, { backgroundColor: theme.surface, borderColor: theme.border }]}>
             <View style={[styles.fieldRow, { borderBottomColor: theme.border }]}>
               <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>Nome</Text>
               <TextInput
                 style={[styles.fieldInput, { color: theme.text }]}
-                value={form.displayName}
-                onChangeText={set("displayName")}
-                placeholder="Nome de exibição"
-                placeholderTextColor={theme.textSecondary}
-                maxLength={50}
+                value={form.displayName} onChangeText={set("displayName")}
+                placeholder="Nome de exibição" placeholderTextColor={theme.textSecondary} maxLength={50}
               />
             </View>
             <View style={styles.fieldRow}>
               <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>Bio</Text>
               <TextInput
                 style={[styles.fieldInput, { color: theme.text }]}
-                value={form.bio}
-                onChangeText={set("bio")}
-                placeholder="Fale sobre você..."
-                placeholderTextColor={theme.textSecondary}
-                multiline
-                maxLength={150}
+                value={form.bio} onChangeText={set("bio")}
+                placeholder="Fale sobre você..." placeholderTextColor={theme.textSecondary}
+                multiline maxLength={150}
               />
             </View>
           </View>
           <Text style={[styles.charCount, { color: theme.textSecondary }]}>{form.bio.length}/150</Text>
 
-          {/* Campos profissionais */}
+          {/* Profissional */}
           <Text style={[styles.sectionLabel, { color: theme.textSecondary, marginTop: 20 }]}>PROFISSIONAL</Text>
           <View style={[styles.fieldGroup, { backgroundColor: theme.surface, borderColor: theme.border }]}>
             <View style={[styles.fieldRow, { borderBottomColor: theme.border }]}>
@@ -222,7 +158,7 @@ export default function EditProfileScreen({ navigation }: any) {
             </View>
           </View>
 
-          {/* Skills */}
+          {/* Skills — com dica de UX */}
           <Text style={[styles.sectionLabel, { color: theme.textSecondary, marginTop: 20 }]}>HABILIDADES</Text>
           <View style={[styles.fieldGroup, { backgroundColor: theme.surface, borderColor: theme.border }]}>
             <View style={styles.fieldRow}>
@@ -230,12 +166,16 @@ export default function EditProfileScreen({ navigation }: any) {
                 style={[styles.fieldInput, { color: theme.text }]}
                 value={form.skillsText}
                 onChangeText={set("skillsText")}
-                placeholder="React, Node.js, Python (separadas por vírgula)"
+                placeholder="React, Node.js, Python..."
                 placeholderTextColor={theme.textSecondary}
                 maxLength={200}
               />
             </View>
           </View>
+          {/* Dica de UX — texto auxiliar pequeno */}
+          <Text style={[styles.hint, { color: theme.textTertiary }]}>
+            Separe habilidades com vírgula · máx. 200 caracteres
+          </Text>
 
           {/* Privacidade */}
           <Text style={[styles.sectionLabel, { color: theme.textSecondary, marginTop: 20 }]}>PRIVACIDADE</Text>
@@ -261,141 +201,59 @@ export default function EditProfileScreen({ navigation }: any) {
               <Switch value={form.showLikesCount} onValueChange={set("showLikesCount")} trackColor={{ false: theme.border, true: theme.primary }} thumbColor="#fff" />
             </View>
           </View>
+
+          {/* Early Adopter Badge */}
+          {userData?.earlyAdopterNumber ? (
+            <>
+              <Text style={[styles.sectionLabel, { color: theme.textSecondary, marginTop: 20 }]}>BADGE FUNDADOR</Text>
+              <View style={[styles.fieldGroup, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                <View style={styles.switchRow}>
+                  <View style={styles.switchLeft}>
+                    <EarlyAdopterBadge number={userData.earlyAdopterNumber} size="md" showTooltip={false} />
+                    <View>
+                      <Text style={[styles.switchLabel, { color: theme.text }]}>Mostrar badge no perfil</Text>
+                      <Text style={[styles.switchSub, { color: theme.textSecondary }]}>
+                        #{String(userData.earlyAdopterNumber).padStart(3,"0")} · Fundador da plataforma
+                      </Text>
+                    </View>
+                  </View>
+                  <Switch
+                    value={form.showEarlyAdopterBadge}
+                    onValueChange={set("showEarlyAdopterBadge")}
+                    trackColor={{ false: theme.border, true: theme.primary }}
+                    thumbColor="#fff"
+                  />
+                </View>
+              </View>
+            </>
+          ) : null}
+
         </View>
       </ScrollView>
-
-      {/* ── Modal de seleção de fundo ── */}
-      <Modal
-        visible={modalOpen}
-        transparent
-        animationType="slide"
-        statusBarTranslucent
-        onRequestClose={cancelGradient}
-      >
-        {/* Preview do fundo em tempo real — atrás de tudo */}
-        <LinearGradient
-          colors={previewGradient.colors}
-          style={StyleSheet.absoluteFillObject}
-          start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-        />
-        <View style={[StyleSheet.absoluteFillObject, { backgroundColor: isPasstel(previewKey) ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.35)" }]} />
-
-        {/* Painel inferior */}
-        <View style={styles.modalOuter} pointerEvents="box-none">
-          <View style={[styles.modalPanel, { paddingBottom: insets.bottom + 12 }]}>
-            <BlurView
-              intensity={90}
-              tint={isDark ? "dark" : "light"}
-              style={StyleSheet.absoluteFillObject}
-            />
-
-            {/* Handle + cabeçalho */}
-            <View style={styles.modalHandle} />
-            <View style={styles.modalHeader}>
-              <TouchableOpacity onPress={cancelGradient} style={styles.modalHeaderBtn}>
-                <Ionicons name="close" size={20} color={isDark ? "rgba(255,255,255,0.7)" : "rgba(0,0,0,0.6)"} />
-              </TouchableOpacity>
-              <Text style={[styles.modalTitle, { color: isDark ? "#fff" : "#111" }]}>Fundo de tela</Text>
-              <TouchableOpacity onPress={confirmGradient} style={styles.modalHeaderBtn}>
-                <Text style={[styles.modalSaveText, { color: "#7C3AED" }]}>Salvar</Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Preview miniatura do perfil */}
-            <View style={styles.miniPreview}>
-              <Avatar uri={currentAvatar} name={form.displayName || userData?.username} size={52} showRing />
-              <View style={{ flex: 1, gap: 4 }}>
-                <View style={{ height: 10, width: "60%", borderRadius: 5, backgroundColor: isPasstel(previewKey) ? "rgba(0,0,0,0.15)" : "rgba(255,255,255,0.25)" }} />
-                <View style={{ height: 8, width: "40%", borderRadius: 4, backgroundColor: isPasstel(previewKey) ? "rgba(0,0,0,0.1)" : "rgba(255,255,255,0.15)" }} />
-              </View>
-            </View>
-
-            {/* Grade de opções */}
-            <Text style={[styles.modalSectionLabel, { color: isDark ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.4)" }]}>
-              ESCOLHA O FUNDO
-            </Text>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.gradientList}
-            >
-              {BANNER_GRADIENTS.map(g => (
-                <TouchableOpacity
-                  key={`modal-bg-${g.id}`}
-                  onPress={() => setPreviewKey(g.id)}
-                  activeOpacity={0.8}
-                  style={styles.gradientOption}
-                >
-                  <LinearGradient
-                    colors={g.colors}
-                    style={[
-                      styles.gradientThumb,
-                      previewKey === g.id && styles.gradientThumbSelected,
-                    ]}
-                    start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-                  >
-                    {previewKey === g.id && (
-                      <Ionicons name="checkmark" size={18} color="#fff" />
-                    )}
-                  </LinearGradient>
-                  <Text style={[
-                    styles.gradientLabel,
-                    { color: isDark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.5)" },
-                    previewKey === g.id && { color: isDark ? "#fff" : "#111", fontWeight: "600" },
-                  ]}>
-                    {g.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  root:    { flex: 1 },
-  header:  { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 16, paddingBottom: 14, borderBottomWidth: 1 },
-  headerTitle: { fontSize: 16, fontWeight: "700" },
-  saveBtn:     { fontSize: 15, fontWeight: "700" },
-  content:     { paddingBottom: 60 },
-
-  bannerSection: { position: "relative", marginBottom: 60 },
-  bannerPreview: { height: 140, justifyContent: "flex-end", alignItems: "flex-end", paddingHorizontal: 14, paddingBottom: 12 },
-  changeBgBtn:   { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "rgba(0,0,0,0.45)", borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6 },
-  changeBgText:  { color: "#fff", fontSize: 12, fontWeight: "600" },
-  avatarWrapper: { position: "absolute", bottom: -44, left: 20 },
-  editAvatarBtn: { position: "absolute", bottom: 0, right: 0, width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "#0A0A0F" },
-
-  form:         { paddingHorizontal: 16, paddingTop: 8 },
+  root:         { flex: 1 },
+  header:       { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 16, paddingBottom: 14, borderBottomWidth: StyleSheet.hairlineWidth },
+  headerTitle:  { fontSize: 16, fontWeight: "700" },
+  saveBtn:      { fontSize: 15, fontWeight: "700" },
+  content:      { paddingBottom: 60 },
+  avatarSection: { alignItems: "center", paddingVertical: 28 },
+  avatarWrap:   { position: "relative" },
+  editAvatarBtn: { position: "absolute", bottom: 0, right: 0, width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center" },
+  avatarHint:   { fontSize: 12, marginTop: 10 },
+  form:         { paddingHorizontal: 16, paddingTop: 0 },
   sectionLabel: { fontSize: 11, fontWeight: "600", letterSpacing: 0.8, marginBottom: 8 },
   fieldGroup:   { borderRadius: 14, borderWidth: 1, overflow: "hidden" },
-  fieldRow:     { flexDirection: "row", alignItems: "flex-start", paddingVertical: 14, paddingHorizontal: 16, borderBottomWidth: 1, gap: 12 },
+  fieldRow:     { flexDirection: "row", alignItems: "flex-start", paddingVertical: 14, paddingHorizontal: 16, borderBottomWidth: StyleSheet.hairlineWidth, gap: 12 },
   fieldLabel:   { width: 64, fontSize: 13, paddingTop: 2 },
   fieldInput:   { flex: 1, fontSize: 15, lineHeight: 20 },
   charCount:    { fontSize: 11, textAlign: "right", marginTop: 4 },
-  switchRow:    { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 14, borderBottomWidth: 1 },
+  hint:         { fontSize: 11, marginTop: 6, marginBottom: 4 },
+  switchRow:    { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 14, borderBottomWidth: StyleSheet.hairlineWidth },
   switchLeft:   { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
   switchLabel:  { fontSize: 14, fontWeight: "500" },
   switchSub:    { fontSize: 11, marginTop: 2 },
-
-  // Modal
-  modalOuter:  { flex: 1, justifyContent: "flex-end" },
-  modalPanel:  { borderTopLeftRadius: 28, borderTopRightRadius: 28, overflow: "hidden", paddingTop: 8 },
-  modalHandle: { width: 36, height: 4, borderRadius: 2, backgroundColor: "rgba(128,128,128,0.4)", alignSelf: "center", marginBottom: 8 },
-  modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingBottom: 16 },
-  modalHeaderBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
-  modalTitle:    { fontSize: 16, fontWeight: "700" },
-  modalSaveText: { fontSize: 15, fontWeight: "700" },
-
-  miniPreview:      { flexDirection: "row", alignItems: "center", gap: 14, paddingHorizontal: 20, paddingBottom: 20 },
-  modalSectionLabel: { fontSize: 10, fontWeight: "600", letterSpacing: 0.8, paddingHorizontal: 20, marginBottom: 10 },
-
-  gradientList:   { paddingHorizontal: 16, gap: 10, paddingBottom: 4 },
-  gradientOption: { alignItems: "center", gap: 4 },
-  gradientThumb:  { width: 56, height: 56, borderRadius: 16, alignItems: "center", justifyContent: "center" },
-  gradientThumbSelected: { borderWidth: 2.5, borderColor: "#fff" },
-  gradientLabel:  { fontSize: 10, textAlign: "center" },
 });

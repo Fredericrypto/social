@@ -10,6 +10,8 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useAuthStore } from "../store/auth.store";
 import { useThemeStore } from "../store/theme.store";
 import { BadgeProvider, useBadges } from "../context/BadgeContext";
+import { socketService } from "../services/socket.service";
+import { notificationsService } from "../services/notifications.service";
 
 import LoginScreen         from "../screens/auth/LoginScreen";
 import RegisterScreen      from "../screens/auth/RegisterScreen";
@@ -160,7 +162,31 @@ function AuthStack() {
 function AppContent() {
   const { isAuthenticated, isLoading, loadUser } = useAuthStore();
   const { theme, isDark } = useThemeStore();
+  const navigationRef = useRef<any>(null);
+
   useEffect(() => { loadUser(); }, []);
+
+  // ── Socket: conecta ao autenticar, desconecta ao sair ──────────────────
+  useEffect(() => {
+    if (isAuthenticated) {
+      socketService.connect();
+    } else {
+      socketService.disconnect();
+    }
+    return () => {};
+  }, [isAuthenticated]);
+
+  // ── Push Notifications: registra token ao autenticar ───────────────────
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    notificationsService.setNavigationRef(navigationRef);
+    notificationsService.registerForPushNotifications();
+    notificationsService.startListening();
+    notificationsService.clearBadge();
+    return () => {
+      notificationsService.stopListening();
+    };
+  }, [isAuthenticated]);
 
   const appNavTheme = {
     dark: isDark,
@@ -185,7 +211,7 @@ function AppContent() {
   if (!isAuthenticated) return <AuthStack />;
 
   return (
-    <NavigationContainer theme={appNavTheme}>
+    <NavigationContainer theme={appNavTheme} ref={navigationRef}>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         <Stack.Screen name="Main" component={MainStack} />
       </Stack.Navigator>
