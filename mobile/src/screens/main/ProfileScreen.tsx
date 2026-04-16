@@ -78,12 +78,15 @@ export default function ProfileScreen({ navigation }: any) {
     extrapolate: "clamp",
   });
 
-  // ── Reset ao entrar na tela ────────────────────────────────────────────────
+  // ── Reset + reload ao entrar na tela ─────────────────────────────────────
+  // Recarrega dados sempre que a tela ganhar foco (volta de NewPost, EditProfile, etc.)
   useFocusEffect(useCallback(() => {
     scrollY.setValue(0);
     listRef.current?.scrollToOffset?.({ offset: 0, animated: false });
     setActiveTab("posts");
-  }, []));
+    loadData();           // ← garante que posts novos aparecem sem reload manual
+    setSavedPosts([]);    // ← força reload do saved na próxima vez que abrir a aba
+  }, [loadData]));
 
   // ── Data ───────────────────────────────────────────────────────────────────
   const [posts,        setPosts]        = useState<any[]>([]);
@@ -120,7 +123,8 @@ export default function ProfileScreen({ navigation }: any) {
     finally { setLoading(false); }
   }, [user?.username]);
 
-  useEffect(() => { loadData(); refreshBadges(); }, [loadData]);
+  // refreshBadges uma vez ao montar — loadData é chamado pelo useFocusEffect
+  useEffect(() => { refreshBadges(); }, []);
 
   useEffect(() => {
     if (activeTab === "saved" && savedPosts.length === 0) {
