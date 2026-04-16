@@ -24,6 +24,7 @@ class UpdateProfileDto {
   @IsOptional() @IsIn(["everyone", "followers", "nobody"]) whoCanMessage?: string;
   @IsOptional() @IsString()  bannerGradient?:        string;
   @IsOptional() @IsBoolean() showEarlyAdopterBadge?: boolean;
+  @IsOptional() @IsString()  presenceStatus?:       string;
   @IsOptional() @IsString()  expoPushToken?:         string | null;
 }
 

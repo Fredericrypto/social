@@ -7,8 +7,11 @@ import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-cont
 import { BlurView } from "expo-blur";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
+import { Platform } from "react-native";
+import * as NavigationBar from "expo-navigation-bar";
 import { useAuthStore } from "../store/auth.store";
 import { useThemeStore } from "../store/theme.store";
+import { presenceService } from "../services/presence.service";
 import { BadgeProvider, useBadges } from "../context/BadgeContext";
 import { socketService } from "../services/socket.service";
 import { notificationsService } from "../services/notifications.service";
@@ -56,7 +59,7 @@ function AnimatedTabIcon({ route, focused, color }: any) {
     <Animated.View style={{ transform: [{ translateY }], alignItems: "center" }}>
       <Ionicons name={(focused ? activeIcon : inactiveIcon) as any} size={22} color={color} />
       {route.name === "Notifications" && unreadNotifications > 0 && (
-        <View style={s.badge}>
+        <View style={[s.badge, { backgroundColor: color }]}>
           <Text style={s.badgeText}>{unreadNotifications > 9 ? "9+" : unreadNotifications}</Text>
         </View>
       )}
@@ -166,6 +169,23 @@ function AppContent() {
 
   useEffect(() => { loadUser(); }, []);
 
+  // ── Android Navigation Bar — sincroniza cor com o tema ─────────────────
+  // Sem isso, a barra do sistema fica com cor errada no cold start
+  useEffect(() => {
+    if (Platform.OS !== "android") return;
+    NavigationBar.setBackgroundColorAsync(theme.background).catch(() => {});
+    NavigationBar.setButtonStyleAsync(isDark ? "light" : "dark").catch(() => {});
+  }, [theme.background, isDark]);
+
+  // ── Presence: online ao autenticar, offline ao sair ────────────────────
+  useEffect(() => {
+    if (isAuthenticated) {
+      presenceService.goOnline();
+    } else {
+      presenceService.goOffline();
+    }
+  }, [isAuthenticated]);
+
   // ── Socket: conecta ao autenticar, desconecta ao sair ──────────────────
   useEffect(() => {
     if (isAuthenticated) {
@@ -230,7 +250,7 @@ export default function Navigation() {
 }
 
 const s = StyleSheet.create({
-  badge:           { position: "absolute", top: -6, right: -8, minWidth: 15, height: 15, borderRadius: 8, backgroundColor: "#EF4444", alignItems: "center", justifyContent: "center", paddingHorizontal: 3 },
+  badge:           { position: "absolute", top: -6, right: -8, minWidth: 15, height: 15, borderRadius: 8, alignItems: "center", justifyContent: "center", paddingHorizontal: 3 },
   badgeText:       { color: "#fff", fontSize: 9, fontWeight: "700" },
   newPostBtn:      { alignItems: "center", justifyContent: "center" },
   newPostGradient: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },

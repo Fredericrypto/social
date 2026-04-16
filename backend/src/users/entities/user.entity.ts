@@ -61,6 +61,11 @@ export class User {
   @Column({ default: true })
   showLikesCount: boolean;
 
+  // ── Presença ─────────────────────────────────────────────────────────────
+  // Status manual: online | busy | away | offline
+  @Column({ default: "offline", type: "varchar", length: 20 })
+  presenceStatus: string;
+
   // ── Early Adopter Badge ──────────────────────────────────────────────────
   // Número de inscrição (1–1000). NULL = não é early adopter.
   // Atribuído automaticamente pelo trigger PostgreSQL na criação do usuário.

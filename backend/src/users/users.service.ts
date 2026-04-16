@@ -50,6 +50,7 @@ export class UsersService {
     showEarlyAdopterBadge?: boolean; jobTitle?: string; company?: string;
     website?: string; skills?: string[]; bannerGradient?: string;
     expoPushToken?: string | null;
+    presenceStatus?: string;
   }): Promise<any> {
     await this.userRepo.update(id, data);
     const user = await this.findById(id);

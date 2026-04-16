@@ -43,6 +43,9 @@ function SwipeableConvRow({
     },
   })).current;
 
+  // Fecha o swipe imediatamente (sem animação) ao montar — evita glitch
+  React.useEffect(() => { translateX.setValue(0); }, []);
+
   const closeSwipe = () =>
     Animated.spring(translateX, { toValue: 0, useNativeDriver: true, friction: 6 }).start();
 

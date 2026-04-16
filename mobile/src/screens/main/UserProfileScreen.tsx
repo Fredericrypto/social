@@ -158,15 +158,33 @@ export default function UserProfileScreen({ route, navigation }: any) {
 
   // ── DM ────────────────────────────────────────────────────────────────────
   const handleDM = async () => {
+    if (!userData?.id) return;
     try {
-      // Cria ou abre conversa existente
-      const res = await api.post("/messages/conversations", {
-        userId: userData?.id,
-      });
-      const conversationId = res.data?.id || res.data?.conversationId;
-      navigation.navigate("Chat", { conversationId, username: userData?.username });
-    } catch {
-      navigation.navigate("Messages");
+      // Backend retorna a conversa completa com participantA/B
+      const res = await api.post("/messages/conversations", { userId: userData.id });
+      const conversation = res.data;
+      // Constrói o objeto "other" que o ChatScreen espera
+      const other = {
+        id:          userData.id,
+        username:    userData.username,
+        displayName: userData.displayName,
+        avatarUrl:   userData.avatarUrl,
+      };
+      navigation.navigate("Chat", { conversation, other });
+    } catch (e: any) {
+      // Se a conversa já existe, o backend pode retorná-la no erro 409
+      if (e?.response?.data?.conversation) {
+        const conversation = e.response.data.conversation;
+        const other = {
+          id:          userData.id,
+          username:    userData.username,
+          displayName: userData.displayName,
+          avatarUrl:   userData.avatarUrl,
+        };
+        navigation.navigate("Chat", { conversation, other });
+      } else {
+        navigation.navigate("Messages");
+      }
     }
   };
 
