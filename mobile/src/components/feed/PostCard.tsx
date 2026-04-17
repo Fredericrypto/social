@@ -8,6 +8,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useNavigation } from '@react-navigation/native';
+import { api } from '../../services/api';
+import { ActionSheetIOS, Share } from 'react-native';
 import { RichText } from '../ui/RichText';
 import ProjectCard, { parseProjectData } from '../ui/ProjectCard';
 import Avatar from '../ui/Avatar';
@@ -153,10 +155,19 @@ export default function PostCard({ post, onLikeUpdate }: PostCardProps) {
     try {
       if (wasLiked) await postsService.unlike(post.id);
       else          await postsService.like(post.id);
-    } catch {
-      setLiked(wasLiked);
-      setLikes(likes);
-      onLikeUpdate?.(post.id, likes);
+    } catch (e: any) {
+      const status = e?.response?.status;
+      if (!wasLiked && status === 409) {
+        // 409 = já curtiu fora do feed — manter liked=true, corrigir contagem
+        setLiked(true);
+        setLikes(likes); // mantém a contagem atual (já inclui o like)
+        onLikeUpdate?.(post.id, likes);
+      } else {
+        // Qualquer outro erro — reverter
+        setLiked(wasLiked);
+        setLikes(likes);
+        onLikeUpdate?.(post.id, likes);
+      }
     }
   }, [liked, likes, post.id, triggerLikeAnim, onLikeUpdate]);
 
@@ -188,6 +199,66 @@ export default function PostCard({ post, onLikeUpdate }: PostCardProps) {
     }
   }, [saved, post.id]);
 
+  // ── Menu de contexto "..." ────────────────────────────────────────────────
+  const handleMoreOptions = useCallback(() => {
+    const isOwn = user?.id === (post.user?.id || post.userId);
+
+    if (Platform.OS === 'ios') {
+      const options = isOwn
+        ? ['Excluir post', 'Tornar invisível', 'Compartilhar', 'Cancelar']
+        : ['Não me interessa', 'Ocultar post', 'Denunciar', 'Compartilhar', 'Cancelar'];
+      const destructiveIdx = 0;
+      const cancelIdx = isOwn ? 3 : 4;
+
+      ActionSheetIOS.showActionSheetWithOptions(
+        { options, destructiveButtonIndex: destructiveIdx, cancelButtonIndex: cancelIdx },
+        async (idx) => {
+          if (isOwn) {
+            if (idx === 0) {
+              Alert.alert('Excluir post?', 'Esta ação é irreversível.', [
+                { text: 'Cancelar', style: 'cancel' },
+                { text: 'Excluir', style: 'destructive', onPress: async () => {
+                  try { await api.delete(`/posts/${post.id}`); }
+                  catch {}
+                }},
+              ]);
+            }
+            if (idx === 1) Alert.alert('Em breve', 'Modo invisível disponível em breve.');
+            if (idx === 2) Share.share({ message: `Confira este post!` });
+          } else {
+            if (idx === 0) Alert.alert('Obrigado!', 'Vamos mostrar menos conteúdo como este.');
+            if (idx === 1) Alert.alert('Post oculto', 'Você não verá mais este post.');
+            if (idx === 2) Alert.alert('Denúncia enviada', 'Nossa equipe vai revisar.');
+            if (idx === 3) Share.share({ message: `Confira este post!` });
+          }
+        }
+      );
+    } else {
+      // Android — Alert com botões
+      const isOwn2 = isOwn;
+      const buttons = isOwn2
+        ? [
+            { text: 'Excluir post', style: 'destructive' as const, onPress: async () => {
+              Alert.alert('Excluir post?', 'Esta ação é irreversível.', [
+                { text: 'Cancelar', style: 'cancel' },
+                { text: 'Excluir', style: 'destructive', onPress: async () => {
+                  try { await api.delete(`/posts/${post.id}`); } catch {}
+                }},
+              ]);
+            }},
+            { text: 'Compartilhar', onPress: () => Share.share({ message: 'Confira este post!' }) },
+            { text: 'Cancelar', style: 'cancel' as const },
+          ]
+        : [
+            { text: 'Não me interessa', onPress: () => Alert.alert('Ok!', 'Vamos mostrar menos assim.') },
+            { text: 'Denunciar', style: 'destructive' as const, onPress: () => Alert.alert('Denúncia enviada') },
+            { text: 'Compartilhar', onPress: () => Share.share({ message: 'Confira este post!' }) },
+            { text: 'Cancelar', style: 'cancel' as const },
+          ];
+      Alert.alert('Opções', undefined, buttons);
+    }
+  }, [post.id, post.user?.id, user?.id]);
+
   const timeAgo = formatDistanceToNow(new Date(post.createdAt), {
     addSuffix: true,
     locale: ptBR,
@@ -210,7 +281,7 @@ export default function PostCard({ post, onLikeUpdate }: PostCardProps) {
                   <Ionicons name={liked ? 'heart' : 'heart-outline'} size={22} color={liked ? LIKE_COLOR : theme.textSecondary} />
                 </Animated.View>
                 {likes > 0 && (
-                  <Text style={[styles.actionCount, { color: liked ? LIKE_COLOR : theme.textSecondary }]}>
+                  <Text style={styles.actionCount}>
                     {likes >= 1000 ? `${(likes / 1000).toFixed(1)}k` : likes}
                   </Text>
                 )}
@@ -222,8 +293,8 @@ export default function PostCard({ post, onLikeUpdate }: PostCardProps) {
           </View>
         </View>
       ) : null}
-      {isProject ? null : (
-
+      {!isProject && (
+        <>
       {/* ── Header — clicável para perfil ───────────────────────────────── */}
       <TouchableOpacity
         style={styles.header}
@@ -257,6 +328,7 @@ export default function PostCard({ post, onLikeUpdate }: PostCardProps) {
         <TouchableOpacity
           style={[styles.moreBtn, { backgroundColor: theme.surfaceHigh }]}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          onPress={handleMoreOptions}
         >
           <Ionicons name="ellipsis-horizontal" size={16} color={theme.textSecondary} />
         </TouchableOpacity>
@@ -348,6 +420,7 @@ export default function PostCard({ post, onLikeUpdate }: PostCardProps) {
       </View>
 
       {/* fim do bloco não-projeto */}
+        </>
       )}
     </View>
   );
@@ -370,5 +443,5 @@ const styles = StyleSheet.create({
   actions:        { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 10 },
   leftActions:    { flexDirection: 'row', gap: 20, alignItems: 'center' },
   actionBtn:      { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  actionCount:    { fontSize: 13, fontWeight: '600' },
+  actionCount:    { fontSize: 13, fontWeight: '700', color: '#111111' },
 });

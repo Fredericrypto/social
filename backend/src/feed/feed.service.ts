@@ -19,17 +19,14 @@ export class FeedService {
       where: { followingId: post.userId },
       select: ['followerId'],
     });
-
     if (!followers.length) return;
-
     const feedItems = followers.map(f =>
       this.feedRepo.create({
-        userId: f.followerId,
-        postId: post.id,
+        userId:   f.followerId,
+        postId:   post.id,
         authorId: post.userId,
       }),
     );
-
     await this.feedRepo
       .createQueryBuilder()
       .insert()
@@ -45,15 +42,52 @@ export class FeedService {
       .where('feed.userId = :userId', { userId })
       .innerJoinAndSelect('feed.post', 'post')
       .innerJoin('post.user', 'user')
-      .addSelect(['user.id', 'user.username', 'user.displayName', 'user.avatarUrl', 'user.isVerified'])
+      .addSelect([
+        'user.id', 'user.username', 'user.displayName',
+        'user.avatarUrl', 'user.isVerified',
+      ])
       .andWhere('post.isDeleted = false')
       .orderBy('feed.createdAt', 'DESC')
       .skip((page - 1) * limit)
       .take(limit)
       .getManyAndCount();
 
+    if (items.length === 0) {
+      return { posts: [], total: 0, page, pages: 0 };
+    }
+
+    const postIds = items.map(i => i.post.id);
+
+    // ── Uma query para todos os likes do usuário neste lote ───────────────
+    const likedRows = await this.feedRepo.manager
+      .createQueryBuilder()
+      .select('l.postId')
+      .from('likes', 'l')
+      .where('l.userId = :userId', { userId })
+      .andWhere('l.postId IN (:...ids)', { ids: postIds })
+      .getRawMany();
+
+    const likedSet = new Set(likedRows.map((r: any) => r.l_postId ?? r.postId));
+
+    // ── Uma query para todos os salvamentos do usuário neste lote ─────────
+    const savedRows = await this.feedRepo.manager
+      .createQueryBuilder()
+      .select('s.postId')
+      .from('saved_posts', 's')
+      .where('s.userId = :userId', { userId })
+      .andWhere('s.postId IN (:...ids)', { ids: postIds })
+      .getRawMany()
+      .catch(() => []); // tabela pode não existir ainda
+
+    const savedSet = new Set(savedRows.map((r: any) => r.s_postId ?? r.postId));
+
     return {
-      posts: items.map(i => ({ ...i.post, feedCreatedAt: i.createdAt })),
+      posts: items.map(i => ({
+        ...i.post,
+        feedCreatedAt: i.createdAt,
+        isLiked: likedSet.has(i.post.id),   // ← estado real do like
+        isSaved: savedSet.has(i.post.id),   // ← estado real do saved
+      })),
       total,
       page,
       pages: Math.ceil(total / limit),
