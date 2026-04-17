@@ -8,6 +8,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useNavigation } from '@react-navigation/native';
+import { RichText } from '../ui/RichText';
+import ProjectCard, { parseProjectData } from '../ui/ProjectCard';
 import Avatar from '../ui/Avatar';
 import { useThemeStore } from '../../store/theme.store';
 import { useAuthStore } from '../../store/auth.store';
@@ -119,6 +121,7 @@ export default function PostCard({ post, onLikeUpdate }: PostCardProps) {
   const lastTap     = useRef(0);
 
   const isCode    = post.postType === 'code' || post.caption?.includes('```');
+  const isProject = post.postType === 'project';
   const isOwnPost = user?.id === (post.user?.id || post.userId);
 
   // ── Navegar para perfil ──────────────────────────────────────────────────
@@ -196,6 +199,31 @@ export default function PostCard({ post, onLikeUpdate }: PostCardProps) {
       borderBottomColor: theme.border,
     }]}>
 
+      {/* Projeto — renderiza o ProjectCard completo */}
+      {isProject ? (
+        <View style={{ padding: 14 }}>
+          <ProjectCard post={post} />
+          <View style={styles.actions}>
+            <View style={styles.leftActions}>
+              <TouchableOpacity onPress={handleLike} style={styles.actionBtn} activeOpacity={0.7}>
+                <Animated.View style={{ transform: [{ scale: heartScale }] }}>
+                  <Ionicons name={liked ? 'heart' : 'heart-outline'} size={22} color={liked ? LIKE_COLOR : theme.textSecondary} />
+                </Animated.View>
+                {likes > 0 && (
+                  <Text style={[styles.actionCount, { color: liked ? LIKE_COLOR : theme.textSecondary }]}>
+                    {likes >= 1000 ? `${(likes / 1000).toFixed(1)}k` : likes}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </View>
+            <TouchableOpacity onPress={handleSave} activeOpacity={0.7}>
+              <Ionicons name={saved ? 'bookmark' : 'bookmark-outline'} size={20} color={saved ? theme.primary : theme.textSecondary} />
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : null}
+      {isProject ? null : (
+
       {/* ── Header — clicável para perfil ───────────────────────────────── */}
       <TouchableOpacity
         style={styles.header}
@@ -240,9 +268,10 @@ export default function PostCard({ post, onLikeUpdate }: PostCardProps) {
       ) : (
         <>
           {post.caption ? (
-            <Text style={[styles.caption, { color: theme.text }]}>
-              {post.caption}
-            </Text>
+            <RichText
+              text={post.caption}
+              style={[styles.caption, { color: theme.text }]}
+            />
           ) : null}
           {post.mediaUrls?.length > 0 && (
             <TouchableOpacity
@@ -318,6 +347,8 @@ export default function PostCard({ post, onLikeUpdate }: PostCardProps) {
         </TouchableOpacity>
       </View>
 
+      {/* fim do bloco não-projeto */}
+      )}
     </View>
   );
 }

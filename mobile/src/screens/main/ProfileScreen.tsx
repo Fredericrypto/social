@@ -30,6 +30,8 @@ import { api } from "../../services/api";
 import { savedService } from "../../services/saved.service";
 import Avatar from "../../components/ui/Avatar";
 import EarlyAdopterBadge from "../../components/ui/EarlyAdopterBadge";
+import ProjectCard from "../../components/ui/ProjectCard";
+import { RichText } from "../../components/ui/RichText";
 import { BadgeContext } from "../../context/BadgeContext";
 
 const { width } = Dimensions.get("window");
@@ -243,7 +245,7 @@ export default function ProfileScreen({ navigation }: any) {
       <View style={{ paddingHorizontal: 14, paddingTop: 10, gap: 10 }}>
         {thoughtPosts.map(p => (
           <View key={`thought-${p.id}`} style={[s.glassItem, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <Text style={{ color: theme.text, fontSize: 14, lineHeight: 22 }}>{p.caption}</Text>
+            <RichText text={p.caption || ""} style={{ fontSize: 14, lineHeight: 22, color: theme.text }} />
             <View style={{ flexDirection: "row", gap: 4, marginTop: 8 }}>
               <Ionicons name="heart-outline" size={13} color={theme.textTertiary} />
               <Text style={{ color: theme.textTertiary, fontSize: 12 }}>{p.likesCount}</Text>
@@ -281,24 +283,9 @@ export default function ProfileScreen({ navigation }: any) {
     );
 
     if (activeTab === "projects") return (
-      <View style={{ paddingHorizontal: 14, paddingTop: 10, gap: 10 }}>
+      <View style={{ paddingHorizontal: 14, paddingTop: 10, gap: 12 }}>
         {projectPosts.map(p => (
-          <View key={`project-${p.id}`} style={[s.glassItem, {
-            backgroundColor: theme.surface, borderColor: theme.border,
-            padding: 0, overflow: "hidden",
-          }]}>
-            {p.mediaUrls?.[0] && (
-              <Image source={{ uri: p.mediaUrls[0] }} style={{ width: "100%", height: 160 }} resizeMode="cover" />
-            )}
-            <View style={{ padding: 12 }}>
-              <Text style={{ color: theme.text, fontWeight: "700", fontSize: 15 }} numberOfLines={1}>
-                {p.caption?.split("\n")[0] || "Projeto"}
-              </Text>
-              <Text style={{ color: theme.textSecondary, fontSize: 12, marginTop: 4 }} numberOfLines={2}>
-                {p.caption?.split("\n").slice(1).join(" ")}
-              </Text>
-            </View>
-          </View>
+          <ProjectCard key={`project-${p.id}`} post={p} />
         ))}
       </View>
     );

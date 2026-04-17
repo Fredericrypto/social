@@ -27,6 +27,7 @@ import { useAuthStore } from "../../store/auth.store";
 import { postsService } from "../../services/posts.service";
 import { api } from "../../services/api";
 import Avatar from "../../components/ui/Avatar";
+import { RichText, RichTextToolbar, TOOLBAR_ID } from "../../components/ui/RichText";
 
 const { width } = Dimensions.get("window");
 
@@ -173,6 +174,7 @@ export default function NewPostScreen({ navigation }: any) {
   const [previewVisible,  setPreviewVisible]  = useState(false);
   const [publishing,      setPublishing]      = useState(false);
   const [uploadProgress,  setUploadProgress]  = useState(0);
+  const captionInputRef = React.useRef<any>(null);
 
   const lang = detectLanguage(code);
 
@@ -195,6 +197,12 @@ export default function NewPostScreen({ navigation }: any) {
 
   // ── Galeria de imagens ────────────────────────────────────────────────
   const pickImage = useCallback(async (forProject = false) => {
+    // Solicitar permissão explicitamente (obrigatório em Android/iOS)
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permissão necessária", "Permita o acesso à galeria nas configurações do dispositivo.");
+      return;
+    }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaType.Images,
       allowsEditing: false,   // sem crop forçado
@@ -373,10 +381,10 @@ export default function NewPostScreen({ navigation }: any) {
 
               {mode !== "project" && (
                 <TextInput
+                  ref={captionInputRef}
+                  inputAccessoryViewID={Platform.OS === "ios" ? TOOLBAR_ID : undefined}
                   style={[s.captionInput, {
                     color: theme.text,
-                    fontWeight: bold   ? "700" : "400",
-                    fontStyle: italic  ? "italic" : "normal",
                   }]}
                   placeholder={
                     mode === "code"  ? "Descrição do código (opcional)..." :
@@ -395,22 +403,13 @@ export default function NewPostScreen({ navigation }: any) {
             </View>
           </View>
 
-          {/* Toolbar de formatação (só modo texto) */}
-          {mode === "text" && (
-            <View style={[s.formatBar, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-              <TouchableOpacity
-                style={[s.fmtBtn, bold && { backgroundColor: theme.primary + "33" }]}
-                onPress={() => setBold(b => !b)}
-              >
-                <Text style={[s.fmtBtnText, { color: bold ? theme.primary : theme.textSecondary, fontWeight: "800" }]}>B</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[s.fmtBtn, italic && { backgroundColor: theme.primary + "33" }]}
-                onPress={() => setItalic(i => !i)}
-              >
-                <Text style={[s.fmtBtnText, { color: italic ? theme.primary : theme.textSecondary, fontStyle: "italic" }]}>I</Text>
-              </TouchableOpacity>
-            </View>
+          {/* Toolbar de rich text — Android: aparece aqui; iOS: via InputAccessoryView */}
+          {mode === "text" && Platform.OS === "android" && (
+            <RichTextToolbar
+              inputRef={captionInputRef}
+              value={caption}
+              onChangeText={setCaption}
+            />
           )}
 
           {/* Editor de código */}
@@ -680,6 +679,15 @@ export default function NewPostScreen({ navigation }: any) {
         </ScrollView>
       </KeyboardAvoidingView>
 
+      {/* Toolbar de rich text iOS — flutua acima do teclado */}
+      {mode === "text" && Platform.OS === "ios" && (
+        <RichTextToolbar
+          inputRef={captionInputRef}
+          value={caption}
+          onChangeText={setCaption}
+        />
+      )}
+
       {/* Modal de Preview */}
       <Modal visible={previewVisible} animationType="slide" statusBarTranslucent>
         <View style={[s.previewRoot, { backgroundColor: theme.background }]}>
@@ -781,7 +789,7 @@ export default function NewPostScreen({ navigation }: any) {
                 </View>
               ) : (
                 <>
-                  {caption ? <Text style={[s.previewCaption, { color: theme.text }]}>{caption}</Text> : null}
+                  {caption ? <RichText text={caption} style={[s.previewCaption, { color: theme.text }]} /> : null}
                   {image ? (
                     <Image
                       source={{ uri: image }}
