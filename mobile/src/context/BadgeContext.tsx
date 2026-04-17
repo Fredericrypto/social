@@ -4,15 +4,17 @@ import { api } from "../services/api";
 import { useAuthStore } from "../store/auth.store";
 
 interface BadgeState {
-  unreadMessages: number;
+  unreadMessages:      number;
   unreadNotifications: number;
-  refreshBadges: () => void;
+  refreshBadges:       () => void;
+  clearNotificationBadge: () => void;  // zera badge imediatamente (ao abrir tela)
 }
 
 export const BadgeContext = createContext<BadgeState>({
-  unreadMessages: 0,
-  unreadNotifications: 0,
-  refreshBadges: () => {},
+  unreadMessages:         0,
+  unreadNotifications:    0,
+  refreshBadges:          () => {},
+  clearNotificationBadge: () => {},
 });
 
 export function useBadges() {
@@ -20,19 +22,17 @@ export function useBadges() {
 }
 
 export function BadgeProvider({ children }: { children: React.ReactNode }) {
-  const [unreadMessages, setUnreadMessages] = useState(0);
+  const [unreadMessages,      setUnreadMessages]      = useState(0);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const { isAuthenticated } = useAuthStore();
   const intervalRef = useRef<any>(null);
-  const lastFetch = useRef<number>(0);
+  const lastFetch   = useRef<number>(0);
 
   const refreshBadges = useCallback(async () => {
     if (!isAuthenticated) return;
-    // Throttle: no mínimo 15s entre chamadas
     const now = Date.now();
     if (now - lastFetch.current < 15000) return;
     lastFetch.current = now;
-
     try {
       const [msgRes, notifRes] = await Promise.all([
         api.get("/messages/unread-count").catch(() => ({ data: 0 })),
@@ -43,35 +43,37 @@ export function BadgeProvider({ children }: { children: React.ReactNode }) {
     } catch {}
   }, [isAuthenticated]);
 
-  useEffect(() => {
-    if (!isAuthenticated) return;
+  // Zera o badge de notificações imediatamente (chamado ao abrir a tela)
+  const clearNotificationBadge = useCallback(() => {
+    setUnreadNotifications(0);
+    lastFetch.current = 0; // força refresh na próxima chamada
+  }, []);
 
-    // Fetch inicial
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setUnreadMessages(0);
+      setUnreadNotifications(0);
+      return;
+    }
     lastFetch.current = 0;
     refreshBadges();
-
-    // Poll a cada 60s (não 30s)
     intervalRef.current = setInterval(() => {
-      lastFetch.current = 0; // resetar throttle para o poll
+      lastFetch.current = 0;
       refreshBadges();
     }, 60000);
-
-    // Pausar quando app vai para background
     const sub = AppState.addEventListener("change", (state) => {
-      if (state === "active") {
-        lastFetch.current = 0;
-        refreshBadges();
-      }
+      if (state === "active") { lastFetch.current = 0; refreshBadges(); }
     });
-
-    return () => {
-      clearInterval(intervalRef.current);
-      sub.remove();
-    };
-  }, [isAuthenticated]);
+    return () => { clearInterval(intervalRef.current); sub.remove(); };
+  }, [isAuthenticated, refreshBadges]);
 
   return (
-    <BadgeContext.Provider value={{ unreadMessages, unreadNotifications, refreshBadges }}>
+    <BadgeContext.Provider value={{
+      unreadMessages,
+      unreadNotifications,
+      refreshBadges,
+      clearNotificationBadge,
+    }}>
       {children}
     </BadgeContext.Provider>
   );

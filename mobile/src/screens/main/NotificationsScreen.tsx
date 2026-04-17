@@ -1,117 +1,238 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, {
+  useEffect, useState, useCallback, useContext, useRef,
+} from "react";
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
-  StatusBar, RefreshControl,
-} from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { formatDistanceToNow } from 'date-fns';
-import { ptBR } from 'date-fns/locale';
-import { useThemeStore } from '../../store/theme.store';
-import { api } from '../../services/api';
-import Avatar from '../../components/ui/Avatar';
-import Skeleton from '../../components/ui/Skeleton';
+  StatusBar, RefreshControl, Animated, Alert,
+} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useFocusEffect } from "@react-navigation/native";
+import { useThemeStore } from "../../store/theme.store";
+import { api } from "../../services/api";
+import { BadgeContext } from "../../context/BadgeContext";
+import {
+  groupNotifications, filterOld,
+  NotificationGroup, RawNotification,
+} from "../../utils/notificationHelpers";
+import NotificationStack from "../../components/notifications/NotificationStack";
 
-const TYPE_CONFIG: Record<string, { icon: string; color: string; label: string }> = {
-  like:    { icon: 'heart',      color: '#F43F5E', label: 'curtiu seu post' },
-  comment: { icon: 'chatbubble', color: '#7C3AED', label: 'comentou no seu post' },
-  follow:  { icon: 'person-add', color: '#06B6D4', label: 'começou a seguir você' },
-  mention: { icon: 'at-circle',  color: '#F59E0B', label: 'mencionou você' },
-};
+export default function NotificationsScreen({ navigation }: any) {
+  const { theme, isDark }     = useThemeStore();
+  const { refreshBadges, clearNotificationBadge } = useContext(BadgeContext);
+  const insets                = useSafeAreaInsets();
 
-export default function NotificationsScreen() {
-  const { theme } = useThemeStore();
-  const [notifications, setNotifications] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [groups,     setGroups]     = useState<NotificationGroup[]>([]);
+  const [loading,    setLoading]    = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [editMode,   setEditMode]   = useState(false);
+  const [selected,   setSelected]   = useState<Set<string>>(new Set());
 
-  const load = useCallback(async () => {
+  // ── Carregar + agrupar ──────────────────────────────────────────────────
+  const load = useCallback(async (showRefresh = false) => {
+    if (showRefresh) setRefreshing(true);
     try {
-      const { data } = await api.get('/notifications');
-      setNotifications(data.notifications);
-      await api.patch('/notifications/read-all');
-    } catch {}
-    finally { setLoading(false); setRefreshing(false); }
+      const { data } = await api.get("/notifications?limit=100");
+      const raw: RawNotification[] = data.notifications || data || [];
+      // Aplica filtro de 7 dias e agrupa
+      const grouped = groupNotifications(filterOld(raw));
+      setGroups(grouped);
+      // Marca todas como lidas
+      await api.patch("/notifications/read-all").catch(() => {});
+      refreshBadges();
+    } catch {
+      setGroups([]);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [refreshBadges]);
+
+  // Recarrega ao focar a tela
+  useFocusEffect(useCallback(() => { clearNotificationBadge(); load(); }, [load, clearNotificationBadge]));
+
+  // ── Deletar grupo ───────────────────────────────────────────────────────
+  const deleteGroup = useCallback((key: string) => {
+    setGroups(prev => prev.filter(g => g.key !== key));
+    setSelected(prev => { const s = new Set(prev); s.delete(key); return s; });
   }, []);
 
-  useEffect(() => { load(); }, []);
-
-  const renderItem = ({ item }: any) => {
-    const cfg = TYPE_CONFIG[item.type] || TYPE_CONFIG.like;
-    const actor = item.actor;
-    const name = actor?.displayName || actor?.username || 'Alguém';
-
-    return (
-      <TouchableOpacity
-        style={[
-          styles.item,
-          { borderBottomColor: theme.border },
-          !item.isRead && { backgroundColor: theme.surface },
-        ]}
-        activeOpacity={0.7}
-      >
-        <View style={styles.iconWrap}>
-          <Avatar
-            uri={actor?.avatarUrl}
-            name={name}
-            size={46}
-          />
-          <View style={[styles.typeIcon, { backgroundColor: cfg.color }]}>
-            <Ionicons name={cfg.icon as any} size={10} color="#fff" />
-          </View>
-        </View>
-        <View style={styles.content}>
-          <Text style={[styles.text, { color: theme.text }]}>
-            <Text style={{ fontWeight: '700' }}>@{actor?.username || '...'}</Text>
-            {' '}{cfg.label}
-          </Text>
-          <Text style={[styles.time, { color: theme.textSecondary }]}>
-            {formatDistanceToNow(new Date(item.createdAt), { addSuffix: true, locale: ptBR })}
-          </Text>
-        </View>
-        {!item.isRead && (
-          <View style={[styles.unreadDot, { backgroundColor: theme.primary }]} />
-        )}
-      </TouchableOpacity>
+  // ── Deletar selecionados ────────────────────────────────────────────────
+  const deleteSelected = () => {
+    if (selected.size === 0) return;
+    Alert.alert(
+      `Remover ${selected.size} grupo${selected.size > 1 ? "s" : ""}?`,
+      "As notificações serão removidas permanentemente.",
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Remover",
+          style: "destructive",
+          onPress: () => {
+            setGroups(prev => prev.filter(g => !selected.has(g.key)));
+            setSelected(new Set());
+            setEditMode(false);
+          },
+        },
+      ]
     );
   };
 
+  const selectAll = () => {
+    if (selected.size === groups.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(groups.map(g => g.key)));
+    }
+  };
+
+  const toggleSelect = (key: string) => {
+    setSelected(prev => {
+      const s = new Set(prev);
+      if (s.has(key)) s.delete(key); else s.add(key);
+      return s;
+    });
+  };
+
+  // ── Navegação inteligente ───────────────────────────────────────────────
+  const handleNavigate = useCallback((target: "profile" | "post", id: string) => {
+    if (target === "profile") {
+      navigation?.navigate?.("UserProfile", { username: id });
+    } else {
+      // Post individual — futuro
+      navigation?.navigate?.("Tabs", { screen: "Feed" });
+    }
+  }, [navigation]);
+
+  // ── Skeleton ────────────────────────────────────────────────────────────
+  const Skeleton = () => (
+    <View style={{ padding: 16, gap: 16 }}>
+      {[1, 2, 3, 4, 5].map(i => (
+        <View key={i} style={{ flexDirection: "row", gap: 12, alignItems: "center" }}>
+          <View style={[sk.circle, { backgroundColor: theme.surfaceHigh }]} />
+          <View style={{ flex: 1, gap: 8 }}>
+            <View style={[sk.line, { width: "70%", backgroundColor: theme.surfaceHigh }]} />
+            <View style={[sk.line, { width: "30%", backgroundColor: theme.surfaceHigh }]} />
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+
+  const allSelected = selected.size === groups.length && groups.length > 0;
+  const unreadCount = groups.filter(g => g.hasUnread).length;
+
   return (
-    <View style={[styles.root, { backgroundColor: theme.background }]}>
-      <StatusBar barStyle="light-content" />
-      <View style={[styles.header, { borderBottomColor: theme.border, backgroundColor: theme.background }]}>
-        <Text style={[styles.headerTitle, { color: theme.text }]}>Notificações</Text>
+    <View style={[s.root, { backgroundColor: theme.background }]}>
+      <StatusBar
+        barStyle={isDark ? "light-content" : "dark-content"}
+        translucent backgroundColor="transparent"
+      />
+
+      {/* Header */}
+      <View style={[s.header, {
+        paddingTop:        insets.top + 10,
+        borderBottomColor: theme.border,
+        backgroundColor:   theme.background,
+      }]}>
+        <View style={s.headerLeft}>
+          <Text style={[s.headerTitle, { color: theme.text }]}>Notificações</Text>
+          {unreadCount > 0 && (
+            <View style={[s.unreadBadge, { backgroundColor: theme.primary }]}>
+              <Text style={s.unreadBadgeText}>{unreadCount}</Text>
+            </View>
+          )}
+        </View>
+
+        <View style={s.headerRight}>
+          {editMode ? (
+            <>
+              <TouchableOpacity onPress={selectAll} style={s.headerBtn}>
+                <Text style={[s.headerBtnText, { color: theme.primary }]}>
+                  {allSelected ? "Limpar" : "Selecionar tudo"}
+                </Text>
+              </TouchableOpacity>
+              {selected.size > 0 && (
+                <TouchableOpacity onPress={deleteSelected} style={s.headerBtn}>
+                  <Text style={[s.headerBtnText, { color: theme.error }]}>
+                    Remover ({selected.size})
+                  </Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity
+                onPress={() => { setEditMode(false); setSelected(new Set()); }}
+                style={s.headerBtn}
+              >
+                <Text style={[s.headerBtnText, { color: theme.textSecondary }]}>Feito</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              {groups.length > 0 && (
+                <TouchableOpacity
+                  onPress={() => setEditMode(true)}
+                  style={[s.iconBtn, { backgroundColor: theme.surface }]}
+                >
+                  <Ionicons name="checkmark-circle-outline" size={18} color={theme.textSecondary} />
+                </TouchableOpacity>
+              )}
+            </>
+          )}
+        </View>
       </View>
 
       {loading ? (
-        <View style={{ padding: 16, gap: 16 }}>
-          {[1,2,3,4].map(i => (
-            <View key={i} style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
-              <Skeleton width={46} height={46} borderRadius={23} />
-              <View style={{ flex: 1, gap: 8 }}>
-                <Skeleton width="70%" height={13} />
-                <Skeleton width="30%" height={10} />
-              </View>
-            </View>
-          ))}
-        </View>
+        <Skeleton />
       ) : (
         <FlatList
-          data={notifications}
-          keyExtractor={i => i.id}
-          renderItem={renderItem}
+          data={groups}
+          keyExtractor={g => g.key}
+          renderItem={({ item: group }) => (
+            <View style={s.groupWrapper}>
+              {/* Checkbox em modo de edição */}
+              {editMode && (
+                <TouchableOpacity
+                  style={s.checkboxArea}
+                  onPress={() => toggleSelect(group.key)}
+                >
+                  <View style={[
+                    s.checkbox,
+                    { borderColor: theme.border },
+                    selected.has(group.key) && { backgroundColor: theme.primary, borderColor: theme.primary },
+                  ]}>
+                    {selected.has(group.key) && (
+                      <Ionicons name="checkmark" size={11} color="#fff" />
+                    )}
+                  </View>
+                </TouchableOpacity>
+              )}
+
+              <View style={{ flex: 1 }}>
+                <NotificationStack
+                  group={group}
+                  onDelete={deleteGroup}
+                  onNavigate={handleNavigate}
+                />
+              </View>
+            </View>
+          )}
+          ItemSeparatorComponent={() => (
+            <View style={[s.separator, { backgroundColor: theme.border }]} />
+          )}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
-              onRefresh={() => { setRefreshing(true); load(); }}
+              onRefresh={() => load(true)}
               tintColor={theme.primary}
             />
           }
           showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingBottom: insets.bottom + 80 }}
           ListEmptyComponent={
-            <View style={styles.empty}>
-              <Text style={{ fontSize: 40, marginBottom: 12 }}>🔔</Text>
-              <Text style={[styles.emptyTitle, { color: theme.text }]}>Sem notificações</Text>
-              <Text style={[styles.emptySub, { color: theme.textSecondary }]}>
+            <View style={s.empty}>
+              <Text style={s.emptyEmoji}>🔔</Text>
+              <Text style={[s.emptyTitle, { color: theme.text }]}>Sem notificações</Text>
+              <Text style={[s.emptySub, { color: theme.textSecondary }]}>
                 Quando alguém interagir com você, aparecerá aqui
               </Text>
             </View>
@@ -122,18 +243,37 @@ export default function NotificationsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1 },
-  header: { paddingHorizontal: 16, paddingTop: 56, paddingBottom: 14, borderBottomWidth: 1 },
-  headerTitle: { fontSize: 22, fontWeight: '800', letterSpacing: -0.3 },
-  item: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1 },
-  iconWrap: { position: 'relative' },
-  typeIcon: { position: 'absolute', bottom: -2, right: -2, width: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
-  content: { flex: 1 },
-  text: { fontSize: 14, lineHeight: 20 },
-  time: { fontSize: 12, marginTop: 3 },
-  unreadDot: { width: 8, height: 8, borderRadius: 4 },
-  empty: { alignItems: 'center', padding: 60 },
-  emptyTitle: { fontSize: 18, fontWeight: '700', marginBottom: 6 },
-  emptySub: { fontSize: 14, textAlign: 'center' },
+const sk = StyleSheet.create({
+  circle: { width: 46, height: 46, borderRadius: 23 },
+  line:   { height: 12, borderRadius: 6 },
+});
+
+const s = StyleSheet.create({
+  root:           { flex: 1 },
+  header:         {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingBottom: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  headerLeft:     { flexDirection: "row", alignItems: "center", gap: 8 },
+  headerTitle:    { fontSize: 22, fontWeight: "800", letterSpacing: -0.3 },
+  unreadBadge:    { paddingHorizontal: 7, paddingVertical: 2, borderRadius: 10 },
+  unreadBadgeText:{ color: "#fff", fontSize: 11, fontWeight: "700" },
+  headerRight:    { flexDirection: "row", alignItems: "center", gap: 8 },
+  headerBtn:      { paddingHorizontal: 4, paddingVertical: 2 },
+  headerBtnText:  { fontSize: 13, fontWeight: "600" },
+  iconBtn:        { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+
+  groupWrapper:   { flexDirection: "row", alignItems: "center" },
+  checkboxArea:   { paddingLeft: 16, paddingRight: 4, justifyContent: "center" },
+  checkbox:       { width: 20, height: 20, borderRadius: 10, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
+  separator:      { height: StyleSheet.hairlineWidth, marginHorizontal: 16 },
+
+  empty:          { alignItems: "center", paddingTop: 80, gap: 8 },
+  emptyEmoji:     { fontSize: 40, marginBottom: 4 },
+  emptyTitle:     { fontSize: 18, fontWeight: "700" },
+  emptySub:       { fontSize: 14, textAlign: "center", lineHeight: 20 },
 });
