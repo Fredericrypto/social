@@ -192,7 +192,7 @@ export default function FeedScreen({ navigation }: any) {
         </View>
       </View>
 
-      <Stories />
+      <Stories navigation={navigation} />
       <View style={{ height: 1, backgroundColor: theme.border }} />
     </View>
   );

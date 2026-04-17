@@ -14,11 +14,12 @@ export class FollowsService {
   ) {}
 
   async follow(followerId: string, followingId: string) {
-    if (followerId === followingId) throw new ConflictException('Você não pode seguir a si mesmo');
+    if (followerId === followingId)
+      throw new ConflictException('Você não pode seguir a si mesmo');
     const existing = await this.followRepo.findOne({ where: { followerId, followingId } });
     if (existing) throw new ConflictException('Já está seguindo');
     const follow = this.followRepo.create({ followerId, followingId });
-    const saved = await this.followRepo.save(follow);
+    const saved  = await this.followRepo.save(follow);
     await this.notificationsService.create({
       type: NotificationType.FOLLOW,
       recipientId: followingId,
@@ -34,7 +35,12 @@ export class FollowsService {
     return { message: 'Deixou de seguir' };
   }
 
-  async getFollowers(userId: string, page = 1, limit = 20) {
+  /**
+   * Retorna seguidores do userId.
+   * Se requestingUserId fornecido, cada user recebe isFollowing=true/false
+   * indicando se o usuário logado segue aquela pessoa.
+   */
+  async getFollowers(userId: string, page = 1, limit = 20, requestingUserId?: string) {
     const [items, total] = await this.followRepo
       .createQueryBuilder('follow')
       .where('follow.followingId = :userId', { userId })
@@ -43,10 +49,16 @@ export class FollowsService {
       .skip((page - 1) * limit)
       .take(limit)
       .getManyAndCount();
-    return { users: items.map(i => this.sanitize(i.follower)), total };
+
+    const users = items.map(i => this.sanitize(i.follower));
+    return { users: await this.enrichWithFollowing(users, requestingUserId), total };
   }
 
-  async getFollowing(userId: string, page = 1, limit = 20) {
+  /**
+   * Retorna quem userId segue.
+   * Se requestingUserId fornecido, cada user recebe isFollowing=true/false.
+   */
+  async getFollowing(userId: string, page = 1, limit = 20, requestingUserId?: string) {
     const [items, total] = await this.followRepo
       .createQueryBuilder('follow')
       .where('follow.followerId = :userId', { userId })
@@ -55,7 +67,9 @@ export class FollowsService {
       .skip((page - 1) * limit)
       .take(limit)
       .getManyAndCount();
-    return { users: items.map(i => this.sanitize(i.following)), total };
+
+    const users = items.map(i => this.sanitize(i.following));
+    return { users: await this.enrichWithFollowing(users, requestingUserId), total };
   }
 
   async isFollowing(followerId: string, followingId: string): Promise<boolean> {
@@ -63,8 +77,35 @@ export class FollowsService {
     return !!follow;
   }
 
+  // ── Helpers ───────────────────────────────────────────────────────────────
+
   private sanitize(user: any) {
     const { password, refreshToken, ...safe } = user;
     return safe;
+  }
+
+  /**
+   * Enriquece uma lista de usuários com isFollowing=true/false
+   * em relação ao requestingUserId. Uma única query extra em vez de N queries.
+   */
+  private async enrichWithFollowing(users: any[], requestingUserId?: string) {
+    if (!requestingUserId || users.length === 0) {
+      return users.map(u => ({ ...u, isFollowing: false }));
+    }
+
+    const userIds    = users.map(u => u.id);
+    const followRows = await this.followRepo
+      .createQueryBuilder('f')
+      .select('f.followingId')
+      .where('f.followerId = :rid', { rid: requestingUserId })
+      .andWhere('f.followingId IN (:...ids)', { ids: userIds })
+      .getRawMany();
+
+    const followedSet = new Set(followRows.map((r: any) => r.f_followingId ?? r.followingId));
+
+    return users.map(u => ({
+      ...u,
+      isFollowing: followedSet.has(u.id),
+    }));
   }
 }

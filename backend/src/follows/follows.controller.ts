@@ -1,7 +1,11 @@
-import { Controller, Post, Delete, Get, Param, Query, UseGuards, Request } from '@nestjs/common';
+import {
+  Controller, Post, Delete, Get,
+  Param, Query, UseGuards, Request,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { FollowsService } from './follows.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { OptionalJwtGuard } from '../auth/guards/optional-jwt.guard';
 
 @ApiTags('follows')
 @Controller('follows')
@@ -22,13 +26,24 @@ export class FollowsController {
     return this.followsService.unfollow(req.user.id, userId);
   }
 
+  // OptionalJwtGuard: público mas enriquece isFollowing quando logado
   @Get(':userId/followers')
-  getFollowers(@Param('userId') userId: string, @Query('page') page = 1) {
-    return this.followsService.getFollowers(userId, +page);
+  @UseGuards(OptionalJwtGuard)
+  getFollowers(
+    @Param('userId') userId: string,
+    @Query('page') page = 1,
+    @Request() req: any,
+  ) {
+    return this.followsService.getFollowers(userId, +page, 20, req.user?.id);
   }
 
   @Get(':userId/following')
-  getFollowing(@Param('userId') userId: string, @Query('page') page = 1) {
-    return this.followsService.getFollowing(userId, +page);
+  @UseGuards(OptionalJwtGuard)
+  getFollowing(
+    @Param('userId') userId: string,
+    @Query('page') page = 1,
+    @Request() req: any,
+  ) {
+    return this.followsService.getFollowing(userId, +page, 20, req.user?.id);
   }
 }
