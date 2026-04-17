@@ -7,7 +7,10 @@ import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-cont
 import { BlurView } from "expo-blur";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { Platform } from "react-native";
+import { Platform, DeviceEventEmitter } from "react-native";
+
+// Event emitido quando usuário toca na aba já ativa → telas escutam para scroll to top + refresh
+export const TAB_PRESS_EVENT = "TAB_PRESS_SCROLL_TOP";
 import * as NavigationBar from "expo-navigation-bar";
 import { useAuthStore } from "../store/auth.store";
 import { useThemeStore } from "../store/theme.store";
@@ -118,11 +121,35 @@ function MainTabs() {
         },
       })}
     >
-      <Tab.Screen name="Feed"          component={FeedScreen}          />
+      <Tab.Screen
+        name="Feed"
+        component={FeedScreen}
+        listeners={({ navigation, route }) => ({
+          tabPress: () => {
+            const state = navigation.getState();
+            const activeRoute = state?.routes?.[state.index];
+            if (activeRoute?.name === route.name) {
+              DeviceEventEmitter.emit(TAB_PRESS_EVENT, route.name);
+            }
+          },
+        })}
+      />
       <Tab.Screen name="Explore"       component={ExploreScreen}       />
       <Tab.Screen name="NewPost"       component={NewPostScreen}       />
       <Tab.Screen name="Notifications" component={NotificationsScreen} />
-      <Tab.Screen name="Profile"       component={ProfileScreen}       />
+      <Tab.Screen
+        name="Profile"
+        component={ProfileScreen}
+        listeners={({ navigation, route }) => ({
+          tabPress: () => {
+            const state = navigation.getState();
+            const activeRoute = state?.routes?.[state.index];
+            if (activeRoute?.name === route.name) {
+              DeviceEventEmitter.emit(TAB_PRESS_EVENT, route.name);
+            }
+          },
+        })}
+      />
     </Tab.Navigator>
   );
 }

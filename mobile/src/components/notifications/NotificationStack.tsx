@@ -1,12 +1,11 @@
 /**
- * NotificationStack.tsx
+ * NotificationStack v2
  *
- * Card de grupo de notificações com:
- * - Expand/collapse suave dos itens individuais
- * - Swipe to delete (PanResponder)
- * - Botão "Seguir de volta" inline para grupos de follow
- * - Navegação inteligente: avatar → perfil, thumbnail → post
- * - Badge de não lido na cor do tema
+ * Correções:
+ * - Clique no CARD INTEIRO expande (sem seta separada)
+ * - Ícone de tipo proporcional (preenchendo o espaço)
+ * - Botão "Seguir de volta" APENAS na expansão individual ou grupos single-follow
+ * - Suporte a uniqueActors e uniquePosts do helper v2
  */
 
 import React, { useState, useRef, useCallback } from "react";
@@ -26,37 +25,33 @@ import {
 } from "../../utils/notificationHelpers";
 
 interface Props {
-  group:     NotificationGroup;
-  onDelete:  (key: string) => void;
-  onNavigate:(target: "profile" | "post", id: string) => void;
+  group:      NotificationGroup;
+  onDelete:   (key: string) => void;
+  onNavigate: (target: "profile" | "post", id: string) => void;
 }
 
-const SWIPE_DELETE_THRESHOLD = -80;
+const SWIPE_THRESHOLD = -80;
 
 export default function NotificationStack({ group, onDelete, onNavigate }: Props) {
   const { theme }  = useThemeStore();
   const { user }   = useAuthStore();
 
-  const [expanded,      setExpanded]      = useState(false);
-  const [followLoading, setFollowLoading] = useState(false);
-  const [isFollowing,   setIsFollowing]   = useState(false);
+  const [expanded,       setExpanded]       = useState(false);
+  const [followingIds,   setFollowingIds]   = useState<Set<string>>(new Set());
+  const [loadingIds,     setLoadingIds]     = useState<Set<string>>(new Set());
 
-  // Swipe
   const translateX = useRef(new Animated.Value(0)).current;
   const expandAnim = useRef(new Animated.Value(0)).current;
 
-  const cfg = NOTIF_CONFIG[group.type] || NOTIF_CONFIG.like;
-  const isFollow  = group.type === "follow";
-  const hasMany   = group.notifications.length > 1;
+  const cfg      = NOTIF_CONFIG[group.type] || NOTIF_CONFIG.like;
+  const isFollow = group.type === "follow";
+  const hasMany  = group.notifications.length > 1 || (group.uniqueActors?.length || 0) > 1;
 
-  // ── Expand / Collapse ─────────────────────────────────────────────────
+  // ── Expand card inteiro ────────────────────────────────────────────────
   const toggleExpand = useCallback(() => {
     const toValue = expanded ? 0 : 1;
     Animated.spring(expandAnim, {
-      toValue,
-      useNativeDriver: false,
-      friction: 8,
-      tension: 100,
+      toValue, useNativeDriver: false, friction: 8, tension: 100,
     }).start();
     setExpanded(v => !v);
   }, [expanded, expandAnim]);
@@ -69,96 +64,153 @@ export default function NotificationStack({ group, onDelete, onNavigate }: Props
       if (g.dx < 0) translateX.setValue(Math.max(g.dx, -100));
     },
     onPanResponderRelease: (_, g) => {
-      if (g.dx < SWIPE_DELETE_THRESHOLD) {
-        Animated.spring(translateX, {
-          toValue: -80, useNativeDriver: true,
-        }).start();
+      if (g.dx < SWIPE_THRESHOLD) {
+        Animated.spring(translateX, { toValue: -80, useNativeDriver: true }).start();
       } else {
-        Animated.spring(translateX, {
-          toValue: 0, useNativeDriver: true, friction: 6,
-        }).start();
+        Animated.spring(translateX, { toValue: 0, useNativeDriver: true, friction: 6 }).start();
       }
     },
   })).current;
 
   const closeSwipe = () =>
-    Animated.spring(translateX, {
-      toValue: 0, useNativeDriver: true, friction: 6,
-    }).start();
+    Animated.spring(translateX, { toValue: 0, useNativeDriver: true, friction: 6 }).start();
 
   const confirmDelete = () => {
     closeSwipe();
-    Alert.alert("Remover notificação", "Deseja remover este grupo de notificações?", [
+    Alert.alert("Remover notificação?", undefined, [
       { text: "Cancelar", style: "cancel" },
       { text: "Remover", style: "destructive", onPress: () => onDelete(group.key) },
     ]);
   };
 
-  // ── Follow back ────────────────────────────────────────────────────────
-  const handleFollowBack = async () => {
-    if (!group.leadActor?.id || followLoading) return;
-    setFollowLoading(true);
+  // ── Follow / Unfollow individual ──────────────────────────────────────
+  const handleFollow = async (actorId: string) => {
+    if (!actorId || loadingIds.has(actorId)) return;
+    setLoadingIds(prev => new Set([...prev, actorId]));
+    const isFollowing = followingIds.has(actorId);
     try {
       if (isFollowing) {
-        await api.delete(`/follows/${group.leadActor.id}`);
-        setIsFollowing(false);
+        await api.delete(`/follows/${actorId}`);
+        setFollowingIds(prev => { const s = new Set(prev); s.delete(actorId); return s; });
       } else {
-        await api.post(`/follows/${group.leadActor.id}`);
-        setIsFollowing(true);
+        await api.post(`/follows/${actorId}`);
+        setFollowingIds(prev => new Set([...prev, actorId]));
       }
     } catch {}
-    finally { setFollowLoading(false); }
+    finally {
+      setLoadingIds(prev => { const s = new Set(prev); s.delete(actorId); return s; });
+    }
   };
 
-  // ── Altura animada dos itens expandidos ───────────────────────────────
-  const itemHeight = 56; // altura estimada por item
+  // ── Altura animada da expansão ────────────────────────────────────────
+  const itemH = 60;
+  const contentH = (group.uniqueActors?.length || group.notifications.length) * itemH;
   const expandedHeight = expandAnim.interpolate({
-    inputRange:  [0, 1],
-    outputRange: [0, group.notifications.length * itemHeight],
+    inputRange: [0, 1], outputRange: [0, contentH],
   });
 
   const timeAgo = formatDistanceToNow(new Date(group.latestAt), {
     addSuffix: true, locale: ptBR,
   });
 
-  // ── Render item individual (quando expandido) ─────────────────────────
-  const renderIndividual = (item: RawNotification) => {
-    const name = item.actor?.displayName || item.actor?.username || "Alguém";
+  // ── Item individual expandido ─────────────────────────────────────────
+  const renderActorRow = (actor: RawNotification["actor"], index: number) => {
+    if (!actor) return null;
+    const name      = actor.displayName || actor.username || "Alguém";
+    const isMe      = actor.id === user?.id;
+    const following = followingIds.has(actor.id || "");
+    const loading   = loadingIds.has(actor.id || "");
+
     return (
-      <View key={item.id} style={[n.individualRow, { borderTopColor: theme.border }]}>
+      <View
+        key={actor.id || index}
+        style={[n.actorRow, { borderTopColor: theme.border }]}
+      >
         <TouchableOpacity
-          onPress={() => item.actor?.id && onNavigate("profile", item.actor.username || "")}
+          style={n.actorLeft}
+          onPress={() => actor.username && onNavigate("profile", actor.username)}
           activeOpacity={0.8}
         >
-          <Avatar
-            uri={item.actor?.avatarUrl}
-            name={name}
-            size={32}
-          />
+          <Avatar uri={actor.avatarUrl} name={name} size={34} />
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={[n.actorName, { color: theme.text }]} numberOfLines={1}>
+              @{actor.username}
+            </Text>
+            {actor.displayName && (
+              <Text style={[n.actorDisplayName, { color: theme.textSecondary }]} numberOfLines={1}>
+                {actor.displayName}
+              </Text>
+            )}
+          </View>
         </TouchableOpacity>
-        <Text style={[n.individualText, { color: theme.textSecondary }]} numberOfLines={1}>
-          <Text style={{ fontWeight: "600", color: theme.text }}>@{item.actor?.username}</Text>
-          {" · "}
-          {formatDistanceToNow(new Date(item.createdAt), { addSuffix: true, locale: ptBR })}
-        </Text>
-        {!item.isRead && (
-          <View style={[n.dot, { backgroundColor: theme.primary }]} />
+
+        {/* Follow back — SÓ na expansão, SÓ se for follow */}
+        {isFollow && !isMe && (
+          <TouchableOpacity
+            style={[
+              n.followBtn,
+              following
+                ? { borderWidth: 1, borderColor: theme.border }
+                : { backgroundColor: theme.primary },
+            ]}
+            onPress={() => actor.id && handleFollow(actor.id)}
+            disabled={loading}
+            activeOpacity={0.8}
+          >
+            {loading
+              ? <ActivityIndicator size="small" color={following ? theme.textSecondary : "#fff"} />
+              : <Text style={[n.followBtnText, { color: following ? theme.textSecondary : "#fff" }]}>
+                  {following ? "Seguindo" : "Seguir"}
+                </Text>
+            }
+          </TouchableOpacity>
         )}
       </View>
     );
   };
 
+  // ── Render posts únicos (quando mesmo usuário curtiu vários) ──────────
+  const renderPostRow = (post: RawNotification["post"], index: number) => {
+    if (!post) return null;
+    return (
+      <TouchableOpacity
+        key={post.id || index}
+        style={[n.postRow, { borderTopColor: theme.border }]}
+        onPress={() => post.id && onNavigate("post", post.id)}
+        activeOpacity={0.8}
+      >
+        {post.mediaUrls?.[0] ? (
+          <Image source={{ uri: post.mediaUrls[0] }} style={n.postThumb} />
+        ) : (
+          <View style={[n.postThumb, { backgroundColor: theme.surfaceHigh, alignItems: "center", justifyContent: "center" }]}>
+            <Ionicons name="document-text-outline" size={16} color={theme.textTertiary} />
+          </View>
+        )}
+        <Text style={[n.postCaption, { color: theme.textSecondary }]} numberOfLines={2}>
+          {post.caption?.replace(/```[^`]*```/g, "[código]") || "Post sem legenda"}
+        </Text>
+        <Ionicons name="chevron-forward" size={14} color={theme.textTertiary} />
+      </TouchableOpacity>
+    );
+  };
+
+  // Decide o que mostrar na expansão
+  const isSameActor  = (group.uniqueActors?.length || 0) === 1;
+  const expandContent = isSameActor && !isFollow
+    ? (group.uniquePosts || []).map(renderPostRow)
+    : (group.uniqueActors || []).map(renderActorRow);
+
   return (
     <View style={n.wrapper}>
-      {/* Botão de delete atrás do card */}
+      {/* Botão delete atrás */}
       <View style={n.deleteBack}>
         <TouchableOpacity style={n.deleteBtn} onPress={confirmDelete}>
-          <Ionicons name="trash-outline" size={18} color="#fff" />
+          <Ionicons name="trash-outline" size={16} color="#fff" />
           <Text style={n.deleteTxt}>Remover</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Card deslizável */}
+      {/* Card deslizável — clique no card inteiro expande */}
       <Animated.View
         style={[n.card, {
           backgroundColor: group.hasUnread ? theme.surface : theme.background,
@@ -166,13 +218,18 @@ export default function NotificationStack({ group, onDelete, onNavigate }: Props
         }]}
         {...panResponder.panHandlers}
       >
-        {/* Linha principal */}
-        <View style={n.mainRow}>
-
-          {/* Avatar empilhado (mostra até 2 avatares) */}
+        <TouchableOpacity
+          style={n.mainRow}
+          onPress={hasMany ? toggleExpand : undefined}
+          activeOpacity={hasMany ? 0.75 : 1}
+          disabled={!hasMany}
+        >
+          {/* Avatar empilhado */}
           <TouchableOpacity
             style={n.avatarStack}
-            onPress={() => group.leadActor && onNavigate("profile", group.leadActor.username || "")}
+            onPress={() => {
+              if (group.leadActor?.username) onNavigate("profile", group.leadActor.username);
+            }}
             activeOpacity={0.8}
           >
             <Avatar
@@ -180,18 +237,19 @@ export default function NotificationStack({ group, onDelete, onNavigate }: Props
               name={group.leadActor?.displayName || group.leadActor?.username}
               size={46}
             />
-            {group.notifications.length > 1 && group.notifications[1]?.actor && (
+            {/* Segundo avatar empilhado */}
+            {(group.uniqueActors?.length || 0) > 1 && group.uniqueActors![1] && (
               <View style={n.secondAvatar}>
                 <Avatar
-                  uri={group.notifications[1].actor?.avatarUrl}
-                  name={group.notifications[1].actor?.displayName}
-                  size={26}
+                  uri={group.uniqueActors![1].avatarUrl}
+                  name={group.uniqueActors![1].displayName}
+                  size={24}
                 />
               </View>
             )}
-            {/* Badge de tipo */}
+            {/* Ícone de tipo — proporcional */}
             <View style={[n.typeIcon, { backgroundColor: cfg.color }]}>
-              <Ionicons name={cfg.icon as any} size={9} color="#fff" />
+              <Ionicons name={cfg.icon as any} size={12} color="#fff" />
             </View>
           </TouchableOpacity>
 
@@ -203,66 +261,36 @@ export default function NotificationStack({ group, onDelete, onNavigate }: Props
             <Text style={[n.time, { color: theme.textSecondary }]}>{timeAgo}</Text>
           </View>
 
-          {/* Thumbnail do post */}
+          {/* Thumbnail do post (só navega se não for expandível) */}
           {group.post?.mediaUrls?.[0] && (
             <TouchableOpacity
               onPress={() => group.post?.id && onNavigate("post", group.post.id)}
               activeOpacity={0.8}
             >
-              <Image
-                source={{ uri: group.post.mediaUrls[0] }}
-                style={n.thumbnail}
-              />
+              <Image source={{ uri: group.post.mediaUrls[0] }} style={n.thumbnail} />
             </TouchableOpacity>
           )}
 
-          {/* Botão seguir de volta (só em grupos de follow) */}
-          {isFollow && !isFollowing && group.leadActor?.id !== user?.id && (
-            <TouchableOpacity
-              style={[n.followBackBtn, { backgroundColor: theme.primary }]}
-              onPress={handleFollowBack}
-              disabled={followLoading}
-              activeOpacity={0.8}
-            >
-              {followLoading
-                ? <ActivityIndicator size="small" color="#fff" />
-                : <Text style={n.followBackText}>Seguir</Text>
-              }
-            </TouchableOpacity>
-          )}
-
-          {isFollow && isFollowing && (
-            <TouchableOpacity
-              style={[n.followBackBtn, { backgroundColor: "transparent", borderWidth: 1, borderColor: theme.border }]}
-              onPress={handleFollowBack}
-              disabled={followLoading}
-              activeOpacity={0.8}
-            >
-              <Text style={[n.followBackText, { color: theme.textSecondary }]}>Seguindo</Text>
-            </TouchableOpacity>
-          )}
-
-          {/* Indicador de não lido */}
+          {/* Dot não lido */}
           {group.hasUnread && (
             <View style={[n.unreadDot, { backgroundColor: theme.primary }]} />
           )}
 
-          {/* Seta de expandir (grupos com mais de 1 item) */}
+          {/* Indicador expand (sutil — só chevron, sem botão separado) */}
           {hasMany && (
-            <TouchableOpacity onPress={toggleExpand} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <Ionicons
-                name={expanded ? "chevron-up" : "chevron-down"}
-                size={14}
-                color={theme.textTertiary}
-              />
-            </TouchableOpacity>
+            <Ionicons
+              name={expanded ? "chevron-up" : "chevron-down"}
+              size={13}
+              color={theme.textTertiary}
+              style={{ marginLeft: 2 }}
+            />
           )}
-        </View>
+        </TouchableOpacity>
 
-        {/* Items expandidos */}
+        {/* Conteúdo expandido */}
         {hasMany && (
           <Animated.View style={[n.expandedList, { maxHeight: expandedHeight, overflow: "hidden" }]}>
-            {group.notifications.map(renderIndividual)}
+            {expandContent}
           </Animated.View>
         )}
       </Animated.View>
@@ -271,31 +299,38 @@ export default function NotificationStack({ group, onDelete, onNavigate }: Props
 }
 
 const n = StyleSheet.create({
-  wrapper:      { overflow: "hidden" },
-  deleteBack:   { position: "absolute", right: 0, top: 0, bottom: 0, width: 80, backgroundColor: "#EF4444", alignItems: "center", justifyContent: "center" },
-  deleteBtn:    { alignItems: "center", gap: 4 },
-  deleteTxt:    { color: "#fff", fontSize: 10, fontWeight: "600" },
+  wrapper:    { overflow: "hidden" },
+  deleteBack: { position: "absolute", right: 0, top: 0, bottom: 0, width: 80, backgroundColor: "#EF4444", alignItems: "center", justifyContent: "center" },
+  deleteBtn:  { alignItems: "center", gap: 4 },
+  deleteTxt:  { color: "#fff", fontSize: 10, fontWeight: "600" },
 
-  card:         { paddingHorizontal: 16, paddingVertical: 12 },
-  mainRow:      { flexDirection: "row", alignItems: "center", gap: 12 },
+  card:       { paddingHorizontal: 16, paddingVertical: 13 },
+  mainRow:    { flexDirection: "row", alignItems: "center", gap: 12 },
 
-  avatarStack:  { position: "relative", width: 48, height: 48 },
-  secondAvatar: { position: "absolute", bottom: -4, right: -8, borderRadius: 13, borderWidth: 2, borderColor: "transparent" },
-  typeIcon:     { position: "absolute", bottom: -2, right: -2, width: 17, height: 17, borderRadius: 9, alignItems: "center", justifyContent: "center" },
+  avatarStack:  { position: "relative", width: 50, height: 50 },
+  secondAvatar: { position: "absolute", bottom: -6, right: -8, borderRadius: 12, borderWidth: 2, borderColor: "transparent" },
+  // Ícone proporcional — 20×20 com ícone 12px preenche bem
+  typeIcon:   { position: "absolute", bottom: -1, right: -1, width: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center" },
 
-  content:      { flex: 1, minWidth: 0 },
-  summary:      { fontSize: 13, lineHeight: 19 },
-  time:         { fontSize: 11, marginTop: 2 },
+  content:    { flex: 1, minWidth: 0 },
+  summary:    { fontSize: 13, lineHeight: 19 },
+  time:       { fontSize: 11, marginTop: 2 },
 
-  thumbnail:    { width: 44, height: 44, borderRadius: 8 },
-
-  followBackBtn:{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, minWidth: 72, alignItems: "center" },
-  followBackText:{ fontSize: 12, fontWeight: "700", color: "#fff" },
-
-  unreadDot:    { width: 7, height: 7, borderRadius: 4, marginLeft: 4 },
-  dot:          { width: 6, height: 6, borderRadius: 3 },
+  thumbnail:  { width: 44, height: 44, borderRadius: 8 },
+  unreadDot:  { width: 7, height: 7, borderRadius: 4, marginLeft: 2 },
 
   expandedList: {},
-  individualRow:{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8, paddingHorizontal: 8, borderTopWidth: StyleSheet.hairlineWidth },
-  individualText:{ flex: 1, fontSize: 12 },
+
+  // Rows na expansão
+  actorRow:        { flexDirection: "row", alignItems: "center", paddingVertical: 10, paddingHorizontal: 6, borderTopWidth: StyleSheet.hairlineWidth },
+  actorLeft:       { flex: 1, flexDirection: "row", alignItems: "center", gap: 10, minWidth: 0 },
+  actorName:       { fontSize: 13, fontWeight: "600" },
+  actorDisplayName:{ fontSize: 11, marginTop: 1 },
+
+  followBtn:     { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 16, minWidth: 80, alignItems: "center" },
+  followBtnText: { fontSize: 12, fontWeight: "700" },
+
+  postRow:    { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10, paddingHorizontal: 6, borderTopWidth: StyleSheet.hairlineWidth },
+  postThumb:  { width: 42, height: 42, borderRadius: 8 },
+  postCaption:{ flex: 1, fontSize: 12, lineHeight: 17 },
 });

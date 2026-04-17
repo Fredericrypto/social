@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { AppState, AppStateStatus, DeviceEventEmitter } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import {
   View, FlatList, RefreshControl, ActivityIndicator,
@@ -19,7 +20,53 @@ export default function FeedScreen({ navigation }: any) {
   const [hasMore,    setHasMore]    = useState(true);
   const { theme, isDark } = useThemeStore();
 
-  // ── Novos posts em tempo real ─────────────────────────────────────────
+  // ── Auto-check a cada 5min + reset por inatividade (>3min) ──────────
+  const autoCheckRef   = useRef<any>(null);
+  const bgTimestamp    = useRef<number>(0);
+  const INACTIVE_MS    = 3 * 60 * 1000; // 3 minutos
+  const AUTO_CHECK_MS  = 5 * 60 * 1000; // 5 minutos
+
+  useEffect(() => {
+    // Auto-check de novos posts a cada 5 minutos
+    autoCheckRef.current = setInterval(async () => {
+      if (posts.length === 0) return;
+      try {
+        const data = await postsService.getFeed(1);
+        const newest = data.posts?.[0];
+        if (newest && posts[0] && newest.id !== posts[0].id) {
+          setNewPostsQueue(prev => {
+            if (prev.some(p => p.id === newest.id)) return prev;
+            const next = [newest, ...prev];
+            showPill(true);
+            return next;
+          });
+        }
+      } catch {}
+    }, AUTO_CHECK_MS);
+
+    // Reset ao voltar do background (>3min inativo)
+    const appStateSub = AppState.addEventListener("change", (state: AppStateStatus) => {
+      if (state === "background" || state === "inactive") {
+        bgTimestamp.current = Date.now();
+      } else if (state === "active") {
+        const elapsed = Date.now() - bgTimestamp.current;
+        if (bgTimestamp.current > 0 && elapsed > INACTIVE_MS) {
+          // Resetar feed ao topo e recarregar
+          listRef.current?.scrollToOffset?.({ offset: 0, animated: false });
+          setNewPostsQueue([]);
+          showPill(false);
+          loadFeed(1);
+        }
+      }
+    });
+
+    return () => {
+      clearInterval(autoCheckRef.current);
+      appStateSub.remove();
+    };
+  }, [posts, loadFeed, showPill]);
+
+  // ── Novos posts em tempo real ─────────────────────────────────────────────
   const [newPostsQueue, setNewPostsQueue] = useState<any[]>([]);
   const pillAnim = useRef(new Animated.Value(0)).current;
   const listRef  = useRef<FlatList>(null);
@@ -72,12 +119,33 @@ export default function FeedScreen({ navigation }: any) {
   const loadFeed = useCallback(async (p = 1, refresh = false) => {
     try {
       const data = await postsService.getFeed(p);
+      let feedPosts: any[] = data.posts || [];
+
+      // Algoritmo de prioridade (frontend-side para MVP):
+      // 1. Posts de alta afinidade (autores que o usuário interagiu recentemente)
+      // 2. Posts de seguidores misturados aleatoriamente
+      // 3. Discovery (posts populares de não-seguidos)
+      // O backend já retorna posts de seguidos primeiro; aqui refinamos a ordem
+      if (p === 1 && feedPosts.length > 3) {
+        // Separar por tipo de relação (se backend retornar isFollowing no author)
+        const following    = feedPosts.filter(p => p.user?.isFollowing !== false);
+        const discovery    = feedPosts.filter(p => p.user?.isFollowing === false);
+        // Intercalar: 3 seguidos, 1 discovery, etc.
+        const interleaved: any[] = [];
+        let fi = 0, di = 0;
+        while (fi < following.length || di < discovery.length) {
+          for (let i = 0; i < 3 && fi < following.length; i++) interleaved.push(following[fi++]);
+          if (di < discovery.length) interleaved.push(discovery[di++]);
+        }
+        feedPosts = interleaved;
+      }
+
       if (refresh || p === 1) {
-        setPosts(data.posts);
+        setPosts(feedPosts);
         setNewPostsQueue([]);
         showPill(false);
       } else {
-        setPosts(prev => [...prev, ...data.posts]);
+        setPosts(prev => [...prev, ...feedPosts]);
       }
       setHasMore(p < data.pages);
       setPage(p);
@@ -86,6 +154,17 @@ export default function FeedScreen({ navigation }: any) {
   }, [showPill]);
 
   useFocusEffect(useCallback(() => { loadFeed(1); }, []));
+
+  // ── Tab press → scroll to top + refresh ──────────────────────────────
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener('TAB_PRESS_SCROLL_TOP', (tabName: string) => {
+      if (tabName === 'Feed') {
+        listRef.current?.scrollToOffset?.({ offset: 0, animated: true });
+        setTimeout(() => { setRefreshing(true); loadFeed(1, true); }, 300);
+      }
+    });
+    return () => sub.remove();
+  }, [loadFeed]);
 
   // ── Header ────────────────────────────────────────────────────────────
   const Header = (

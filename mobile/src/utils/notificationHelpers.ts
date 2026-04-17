@@ -1,11 +1,10 @@
 /**
- * notificationHelpers.ts
+ * notificationHelpers.ts v2
  *
- * Engine de agrupamento de notificações:
- * - Agrupa por tipo + postId (ex: 5 curtidas no mesmo post → 1 grupo)
- * - Agrupa follows recentes em um único grupo
- * - Ordena grupos por data da notificação mais recente
- * - Remove notificações com mais de 7 dias
+ * Algoritmo de agrupamento corrigido:
+ * - MESMA PESSOA fazendo N ações no mesmo post → "Felipe curtiu 3 dos seus posts"
+ * - PESSOAS DIFERENTES curtindo o mesmo post → "Felipe, Ana e mais 2 curtiram"
+ * - Nunca "Felipe e Felipe" (mesmo userId deduplicado)
  */
 
 export type NotifType = "like" | "comment" | "follow" | "mention";
@@ -22,60 +21,37 @@ export interface RawNotification {
     avatarUrl?:  string;
   };
   post?: {
-    id:       string;
-    caption?: string;
+    id:        string;
+    caption?:  string;
     mediaUrls?: string[];
   };
 }
 
 export interface NotificationGroup {
-  key:          string;           // chave única do grupo
-  type:         NotifType;
-  notifications: RawNotification[];
-  // Metadados do grupo
-  leadActor:    RawNotification["actor"];   // primeiro ator
-  post?:        RawNotification["post"];
-  latestAt:     string;           // data da mais recente do grupo
-  hasUnread:    boolean;
-  // Texto gerado
-  summary:      string;           // "Felipe e mais 3 curtiram seu post"
+  key:            string;
+  type:           NotifType;
+  notifications:  RawNotification[];
+  leadActor:      RawNotification["actor"];
+  post?:          RawNotification["post"];
+  latestAt:       string;
+  hasUnread:      boolean;
+  summary:        string;
+  // Atores únicos (deduplicados por userId)
+  uniqueActors:   RawNotification["actor"][];
+  // Posts únicos (quando mesmo usuário curtiu vários)
+  uniquePosts:    RawNotification["post"][];
 }
 
-// ─── Configuração por tipo ────────────────────────────────────────────────────
 export const NOTIF_CONFIG: Record<NotifType, {
-  icon:    string;
-  color:   string;
-  label:   string;       // singular
-  labelN:  string;       // plural com {n}
-  groupLabel: string;    // "e mais {n} pessoas"
+  icon: string; color: string;
+  label: string; labelN: string; sameUserN: string;
 }> = {
-  like:    {
-    icon: "heart",       color: "#F43F5E",
-    label: "curtiu seu post",
-    labelN: "curtiram seu post",
-    groupLabel: "e mais {n} pessoas curtiram",
-  },
-  comment: {
-    icon: "chatbubble",  color: "#7C3AED",
-    label: "comentou no seu post",
-    labelN: "comentaram no seu post",
-    groupLabel: "e mais {n} pessoas comentaram",
-  },
-  follow:  {
-    icon: "person-add",  color: "#06B6D4",
-    label: "começou a seguir você",
-    labelN: "começaram a seguir você",
-    groupLabel: "e mais {n} pessoas seguiram",
-  },
-  mention: {
-    icon: "at-circle",   color: "#F59E0B",
-    label: "mencionou você",
-    labelN: "mencionaram você",
-    groupLabel: "e mais {n} pessoas mencionaram",
-  },
+  like:    { icon: "heart",       color: "#F43F5E", label: "curtiu seu post",        labelN: "curtiram seu post",        sameUserN: "curtiu {n} dos seus posts"    },
+  comment: { icon: "chatbubble",  color: "#7C3AED", label: "comentou no seu post",   labelN: "comentaram no seu post",   sameUserN: "comentou em {n} dos seus posts" },
+  follow:  { icon: "person-add",  color: "#06B6D4", label: "começou a seguir você",  labelN: "começaram a seguir você",  sameUserN: "começou a seguir você"         },
+  mention: { icon: "at-circle",   color: "#F59E0B", label: "mencionou você",         labelN: "mencionaram você",         sameUserN: "mencionou você {n} vezes"      },
 };
 
-// ─── Filtrar notificações antigas (> 7 dias) ──────────────────────────────────
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
 export function filterOld(notifications: RawNotification[]): RawNotification[] {
@@ -83,15 +59,45 @@ export function filterOld(notifications: RawNotification[]): RawNotification[] {
   return notifications.filter(n => new Date(n.createdAt).getTime() > cutoff);
 }
 
-// ─── Gerar chave de grupo ─────────────────────────────────────────────────────
-// Mesmo tipo + mesmo post → mesmo grupo
-// Follows sem post → todos num grupo "follows"
+/**
+ * Chave de grupo:
+ * - follow → todos follows juntos
+ * - mesma pessoa, mesmo tipo → agrupa por actorId (ex: Felipe curtiu 3 posts)
+ * - pessoas diferentes, mesmo post → agrupa por tipo+postId
+ */
 function groupKey(n: RawNotification): string {
   if (n.type === "follow") return "follow";
-  return `${n.type}__${n.post?.id || "no-post"}`;
+  const actorId = n.actor?.id || "unknown";
+  const postId  = n.post?.id  || "no-post";
+  // Primeiro tenta agrupar pelo ator (mesmo usuário, tipo igual)
+  return `${n.type}__actor__${actorId}__post__${postId}`;
 }
 
-// ─── Engine principal ─────────────────────────────────────────────────────────
+/**
+ * Segunda passagem: mescla grupos do mesmo ator/tipo em diferentes posts
+ * Ex: Felipe curtiu post-A e post-B → 1 grupo "Felipe curtiu 2 dos seus posts"
+ */
+function mergeActorGroups(
+  map: Map<string, RawNotification[]>
+): Map<string, RawNotification[]> {
+  const merged = new Map<string, RawNotification[]>();
+
+  for (const [key, items] of map.entries()) {
+    const actorId = items[0].actor?.id;
+    const type    = items[0].type;
+    if (!actorId || type === "follow") {
+      merged.set(key, items);
+      continue;
+    }
+    // Chave de ator: agrupa TODAS as ações do mesmo ator/tipo
+    const actorKey = `${type}__actor__${actorId}`;
+    if (!merged.has(actorKey)) merged.set(actorKey, []);
+    merged.get(actorKey)!.push(...items);
+  }
+
+  return merged;
+}
+
 export function groupNotifications(raw: RawNotification[]): NotificationGroup[] {
   const filtered = filterOld(raw);
   const map = new Map<string, RawNotification[]>();
@@ -102,40 +108,73 @@ export function groupNotifications(raw: RawNotification[]): NotificationGroup[] 
     map.get(key)!.push(n);
   }
 
+  // Mesclar grupos do mesmo ator
+  const mergedMap = mergeActorGroups(map);
   const groups: NotificationGroup[] = [];
 
-  for (const [key, items] of map.entries()) {
-    // Ordenar items por data decrescente
+  for (const [key, items] of mergedMap.entries()) {
+    // Ordenar por data decrescente
     items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-    const lead    = items[0];
-    const cfg     = NOTIF_CONFIG[lead.type] || NOTIF_CONFIG.like;
-    const n       = items.length;
-    const actorName = lead.actor?.displayName || lead.actor?.username || "Alguém";
+    const lead = items[0];
+    const cfg  = NOTIF_CONFIG[lead.type] || NOTIF_CONFIG.like;
+
+    // Atores únicos (deduplicar por userId)
+    const actorMap = new Map<string, RawNotification["actor"]>();
+    for (const item of items) {
+      if (item.actor?.id) actorMap.set(item.actor.id, item.actor);
+    }
+    const uniqueActors = Array.from(actorMap.values());
+
+    // Posts únicos
+    const postMap = new Map<string, RawNotification["post"]>();
+    for (const item of items) {
+      if (item.post?.id) postMap.set(item.post.id, item.post);
+    }
+    const uniquePosts = Array.from(postMap.values());
+
+    const isSameActor = uniqueActors.length === 1;
+    const actorName   = lead.actor?.displayName || lead.actor?.username || "Alguém";
+    const nPosts      = uniquePosts.length;
+    const nActors     = uniqueActors.length;
 
     let summary: string;
-    if (n === 1) {
+
+    if (lead.type === "follow") {
+      if (nActors === 1) {
+        summary = `${actorName} ${cfg.label}`;
+      } else if (nActors === 2) {
+        const second = uniqueActors[1]?.displayName || uniqueActors[1]?.username || "outro";
+        summary = `${actorName} e ${second} ${cfg.labelN}`;
+      } else {
+        summary = `${actorName} e mais ${nActors - 1} pessoas ${cfg.labelN}`;
+      }
+    } else if (isSameActor && nPosts > 1) {
+      // Mesmo usuário, vários posts
+      summary = `${actorName} ${cfg.sameUserN.replace("{n}", String(nPosts))}`;
+    } else if (nActors === 1) {
       summary = `${actorName} ${cfg.label}`;
-    } else if (n === 2) {
-      const second = items[1].actor?.displayName || items[1].actor?.username || "outro";
+    } else if (nActors === 2) {
+      const second = uniqueActors[1]?.displayName || uniqueActors[1]?.username || "outro";
       summary = `${actorName} e ${second} ${cfg.labelN}`;
     } else {
-      summary = `${actorName} ${cfg.groupLabel.replace("{n}", String(n - 1))}`;
+      summary = `${actorName} e mais ${nActors - 1} pessoas ${cfg.labelN}`;
     }
 
     groups.push({
       key,
-      type:          lead.type,
+      type:         lead.type,
       notifications: items,
-      leadActor:     lead.actor,
-      post:          lead.post,
-      latestAt:      lead.createdAt,
-      hasUnread:     items.some(i => !i.isRead),
+      leadActor:    lead.actor,
+      post:         lead.post,
+      latestAt:     lead.createdAt,
+      hasUnread:    items.some(i => !i.isRead),
       summary,
+      uniqueActors,
+      uniquePosts,
     });
   }
 
-  // Ordenar grupos: não lidos primeiro, depois por data
   groups.sort((a, b) => {
     if (a.hasUnread !== b.hasUnread) return a.hasUnread ? -1 : 1;
     return new Date(b.latestAt).getTime() - new Date(a.latestAt).getTime();
