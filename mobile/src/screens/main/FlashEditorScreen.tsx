@@ -1,8 +1,7 @@
 /**
- * FlashEditorScreen — Editor de Flashes (conteúdo efêmero 24h)
- * v3 — upload via POST /media/upload (multipart) ao invés de presigned URL
+ * FlashEditorScreen v4
+ * Hero cinematográfica · Duração 1h/6h/12h/24h · Câmera frontal · Swipe down
  */
-
 import React, { useState, useRef, useEffect } from "react";
 import {
   View, Text, StyleSheet, TouchableOpacity, TextInput,
@@ -28,11 +27,31 @@ const TEXT_COLORS = [
   "#EC4899", "#A78BFA", "#34D399", "#FB923C",
 ];
 
+// Fundos para flash de texto puro — inclui preto, branco, cinza
+const BG_SOLIDS = [
+  "#000000", "#FFFFFF", "#6B7280",
+];
 const BG_GRADIENTS: [string, string][] = [
   ["#7C3AED", "#06B6D4"], ["#F43F5E", "#F97316"], ["#0EA5E9", "#22C55E"],
   ["#1E1040", "#3B1F6E"], ["#0F172A", "#1E293B"], ["#7C2D12", "#C2410C"],
   ["#064E3B", "#065F46"], ["#1E3A5F", "#1D4ED8"], ["#4C1D95", "#BE185D"],
-  ["#134E4A", "#0E7490"],
+  ["#134E4A", "#0E7490"], ["#1F2937", "#374151"], ["#7F1D1D", "#991B1B"],
+  ["#14532D", "#166534"], ["#1E3A8A", "#1D4ED8"], ["#4A044E", "#701A75"],
+  ["#0C4A6E", "#0369A1"], ["#422006", "#78350F"], ["#052E16", "#14532D"],
+  ["#1C1917", "#292524"],
+];
+
+type BgType = { type: "solid"; color: string } | { type: "gradient"; colors: [string, string] };
+const ALL_BGS: BgType[] = [
+  ...BG_SOLIDS.map(c => ({ type: "solid" as const, color: c })),
+  ...BG_GRADIENTS.map(c => ({ type: "gradient" as const, colors: c })),
+];
+
+const DURATIONS = [
+  { label: "1h",  hours: 1 },
+  { label: "6h",  hours: 6 },
+  { label: "12h", hours: 12 },
+  { label: "24h", hours: 24 },
 ];
 
 interface TextLayer {
@@ -43,26 +62,41 @@ interface TextLayer {
 type EditorMode = "select" | "camera" | "preview";
 
 export default function FlashEditorScreen({ navigation }: any) {
-  const { theme } = useThemeStore();
+  const { theme, isDark } = useThemeStore();
   const insets = useSafeAreaInsets();
   const [permission, requestPermission] = useCameraPermissions();
 
-  const [mode, setMode]         = useState<EditorMode>("select");
-  const [mediaUri, setMediaUri] = useState<string | null>(null);
-  const [bgIndex, setBgIndex]   = useState(0);
-  const [facing, setFacing]     = useState<"front" | "back">("back");
-  const [torchOn, setTorchOn]   = useState(false);
+  const [mode, setMode]           = useState<EditorMode>("select");
+  const [mediaUri, setMediaUri]   = useState<string | null>(null);
+  const [bgIndex, setBgIndex]     = useState(3); // começa no gradiente roxo/azul
+  const [facing, setFacing]       = useState<"front" | "back">("front"); // frontal por padrão
+  const [torchOn, setTorchOn]     = useState(false);
+  const [duration, setDuration]   = useState(24); // horas
   const cameraRef = useRef<CameraView>(null);
 
-  const [textLayers, setTextLayers]             = useState<TextLayer[]>([]);
-  const [editingText, setEditingText]           = useState(false);
-  const [currentText, setCurrentText]           = useState("");
-  const [currentColor, setCurrentColor]         = useState("#FFFFFF");
-  const [currentSize, setCurrentSize]           = useState(24);
-  const [currentBold, setCurrentBold]           = useState(false);
-  const [selectedLayerId, setSelectedLayerId]   = useState<string | null>(null);
-  const [uploading, setUploading]               = useState(false);
-  const [uploadProgress, setUploadProgress]     = useState("");
+  const [textLayers, setTextLayers]           = useState<TextLayer[]>([]);
+  const [editingText, setEditingText]         = useState(false);
+  const [currentText, setCurrentText]         = useState("");
+  const [currentColor, setCurrentColor]       = useState("#FFFFFF");
+  const [currentSize, setCurrentSize]         = useState(24);
+  const [currentBold, setCurrentBold]         = useState(false);
+  const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
+  const [uploading, setUploading]             = useState(false);
+  const [uploadProgress, setUploadProgress]   = useState("");
+
+  // ── Swipe down para fechar ───────────────────────────────────────────────
+  const swipeY = useRef(new Animated.Value(0)).current;
+  const swipePan = useRef(PanResponder.create({
+    onMoveShouldSetPanResponder: (_, g) => g.dy > 12 && Math.abs(g.dy) > Math.abs(g.dx),
+    onPanResponderMove: (_, g) => { if (g.dy > 0) swipeY.setValue(g.dy); },
+    onPanResponderRelease: (_, g) => {
+      if (g.dy > 120) {
+        navigation.goBack();
+      } else {
+        Animated.spring(swipeY, { toValue: 0, useNativeDriver: true }).start();
+      }
+    },
+  })).current;
 
   const pickFromGallery = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -122,72 +156,165 @@ export default function FlashEditorScreen({ navigation }: any) {
         mediaUrl = await postsService.uploadMedia(mediaUri, "stories");
         setUploadProgress("Publicando...");
       }
-      await api.post("/stories", { mediaUrl, caption });
-      Alert.alert("Flash publicado! ⚡", "Desaparece em 24 horas.", [
+      await api.post("/stories", { mediaUrl, caption, durationHours: duration });
+      Alert.alert("Flash publicado! ⚡", `Some em ${duration}h.`, [
         { text: "OK", onPress: () => navigation.goBack() },
       ]);
     } catch (e: any) {
-      const msg = e?.response?.data?.message || e?.message || "Tente novamente.";
-      Alert.alert("Erro ao publicar", msg);
+      Alert.alert("Erro ao publicar", e?.response?.data?.message || e?.message || "Tente novamente.");
     } finally {
       setUploading(false); setUploadProgress("");
     }
   };
 
-  const resetEditor = () => { setMediaUri(null); setTextLayers([]); setSelectedLayerId(null); setMode("select"); };
+  const confirmDiscard = () => {
+    if (mediaUri || textLayers.length > 0) {
+      Alert.alert("Descartar Flash?", "Todo o progresso será perdido.", [
+        { text: "Continuar editando", style: "cancel" },
+        { text: "Descartar", style: "destructive", onPress: resetEditor },
+      ]);
+    } else {
+      resetEditor();
+    }
+  };
 
-  // ── RENDER: Seleção ──────────────────────────────────────────────────────
+  const resetEditor = () => {
+    setMediaUri(null); setTextLayers([]); setSelectedLayerId(null); setMode("select");
+  };
+
+  const currentBg = ALL_BGS[bgIndex % ALL_BGS.length];
+
+  // ── RENDER: Seleção ────────────────────────────────────────────────────
   if (mode === "select") {
-    const [c1, c2] = BG_GRADIENTS[bgIndex];
     return (
       <View style={s.root}>
         <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
-        <LinearGradient colors={[c1, c2]} style={StyleSheet.absoluteFillObject} />
-        <TouchableOpacity style={[s.iconBtn, { top: insets.top + 12, left: 16 }]} onPress={() => navigation.goBack()} activeOpacity={0.8}>
-          <Ionicons name="close" size={22} color="#fff" />
+
+        {/* Hero background — mesh gradient cinematográfico */}
+        <LinearGradient
+          colors={["#0A0A0F", "#1A0A2E", "#0A1628", "#0A0A0F"]}
+          locations={[0, 0.35, 0.7, 1]}
+          style={StyleSheet.absoluteFillObject}
+        />
+        {/* Orbs decorativos */}
+        <View style={s.orb1} />
+        <View style={s.orb2} />
+        <View style={s.orb3} />
+
+        {/* Fechar */}
+        <TouchableOpacity
+          style={[s.iconBtn, { top: insets.top + 12, left: 16 }]}
+          onPress={() => navigation.goBack()}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="close" size={20} color="rgba(255,255,255,0.8)" />
         </TouchableOpacity>
-        <TouchableOpacity style={[s.iconBtn, { top: insets.top + 12, right: 16 }]} onPress={() => setBgIndex(i => (i + 1) % BG_GRADIENTS.length)} activeOpacity={0.8}>
-          <Ionicons name="color-palette-outline" size={22} color="#fff" />
-        </TouchableOpacity>
-        <View style={s.selectHero}>
-          <Text style={s.heroEmoji}>⚡</Text>
-          <Text style={s.heroTitle}>Flash</Text>
-          <Text style={s.heroSub}>Some em 24 horas</Text>
+
+        {/* Hero content */}
+        <View style={[s.heroWrap, { paddingTop: insets.top + 60 }]}>
+          {/* Badge */}
+          <View style={s.heroBadge}>
+            <Text style={s.heroBadgeText}>⚡ FLASH</Text>
+          </View>
+
+          <Text style={s.heroTitle}>Capture o momento,{"\n"}defina o tempo.</Text>
+          <Text style={s.heroSub}>Conteúdo efêmero que some quando você quiser</Text>
+
+          {/* Seletor de duração */}
+          <View style={s.durationRow}>
+            {DURATIONS.map(d => (
+              <TouchableOpacity
+                key={d.hours}
+                style={[s.durationBtn, duration === d.hours && s.durationBtnActive]}
+                onPress={() => setDuration(d.hours)}
+                activeOpacity={0.8}
+              >
+                <Text style={[s.durationLabel, duration === d.hours && s.durationLabelActive]}>
+                  {d.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <Text style={s.durationHint}>
+            Seu Flash some após {DURATIONS.find(d => d.hours === duration)?.label}
+          </Text>
         </View>
-        <View style={[s.selectCards, { paddingBottom: insets.bottom + 48 }]}>
-          <SelectCard icon="camera" label="Câmera"  sub="Foto agora"    onPress={openCamera} />
-          <SelectCard icon="images" label="Galeria" sub="Escolher foto" onPress={pickFromGallery} />
-          <SelectCard icon="text"   label="Texto"   sub="Flash escrito" onPress={() => { setMediaUri(null); setMode("preview"); }} />
+
+        {/* Cards de ação */}
+        <View style={[s.actionGrid, { paddingBottom: insets.bottom + 32 }]}>
+          <HeroCard
+            icon="camera"
+            label="Câmera"
+            sub="Foto agora"
+            accent="#7C3AED"
+            onPress={openCamera}
+          />
+          <HeroCard
+            icon="images"
+            label="Galeria"
+            sub="Escolher foto"
+            accent="#0EA5E9"
+            onPress={pickFromGallery}
+          />
+          <HeroCard
+            icon="text"
+            label="Texto"
+            sub="Só palavras"
+            accent="#F43F5E"
+            onPress={() => { setMediaUri(null); setMode("preview"); }}
+          />
         </View>
       </View>
     );
   }
 
-  // ── RENDER: Câmera ───────────────────────────────────────────────────────
+  // ── RENDER: Câmera ─────────────────────────────────────────────────────
   if (mode === "camera") {
     return (
       <View style={s.root}>
         <StatusBar hidden />
-        <CameraView ref={cameraRef} style={StyleSheet.absoluteFillObject} facing={facing} enableTorch={torchOn} />
-        <LinearGradient colors={["rgba(0,0,0,0.45)", "transparent", "transparent", "rgba(0,0,0,0.55)"]} style={StyleSheet.absoluteFillObject} pointerEvents="none" />
+        <CameraView
+          ref={cameraRef}
+          style={StyleSheet.absoluteFillObject}
+          facing={facing}
+          enableTorch={torchOn && facing === "back"}
+        />
+        <LinearGradient
+          colors={["rgba(0,0,0,0.5)", "transparent", "transparent", "rgba(0,0,0,0.6)"]}
+          style={StyleSheet.absoluteFillObject}
+          pointerEvents="none"
+        />
+
+        {/* Topo */}
         <View style={[s.camTop, { paddingTop: insets.top + 10 }]}>
           <TouchableOpacity style={s.camBtn} onPress={() => setMode("select")} activeOpacity={0.8}>
-            <Ionicons name="arrow-back" size={22} color="#fff" />
+            <Ionicons name="chevron-down" size={22} color="#fff" />
           </TouchableOpacity>
           <View style={{ flexDirection: "row", gap: 10 }}>
             {facing === "back" && (
-              <TouchableOpacity style={[s.camBtn, torchOn && s.camBtnActive]} onPress={() => setTorchOn(t => !t)} activeOpacity={0.8}>
-                <Ionicons name={torchOn ? "flash" : "flash-off"} size={20} color="#fff" />
+              <TouchableOpacity
+                style={[s.camBtn, torchOn && s.camBtnActive]}
+                onPress={() => setTorchOn(t => !t)}
+                activeOpacity={0.8}
+              >
+                <Ionicons name={torchOn ? "flash" : "flash-off"} size={18} color="#fff" />
               </TouchableOpacity>
             )}
-            <TouchableOpacity style={s.camBtn} onPress={() => { setFacing(f => f === "back" ? "front" : "back"); setTorchOn(false); }} activeOpacity={0.8}>
+            <TouchableOpacity
+              style={s.camBtn}
+              onPress={() => { setFacing(f => f === "back" ? "front" : "back"); setTorchOn(false); }}
+              activeOpacity={0.8}
+            >
               <Ionicons name="camera-reverse-outline" size={22} color="#fff" />
             </TouchableOpacity>
           </View>
         </View>
+
+        {/* Base */}
         <View style={[s.camBottom, { paddingBottom: insets.bottom + 28 }]}>
           <TouchableOpacity style={s.galleryBtn} onPress={pickFromGallery} activeOpacity={0.8}>
-            <Ionicons name="images-outline" size={24} color="#fff" />
+            <Ionicons name="images-outline" size={22} color="#fff" />
           </TouchableOpacity>
           <TouchableOpacity style={s.shutter} onPress={takePicture} activeOpacity={0.9}>
             <View style={s.shutterInner} />
@@ -198,24 +325,33 @@ export default function FlashEditorScreen({ navigation }: any) {
     );
   }
 
-  // ── RENDER: Editor / Preview ─────────────────────────────────────────────
-  const [c1, c2] = BG_GRADIENTS[bgIndex];
+  // ── RENDER: Editor / Preview ───────────────────────────────────────────
   return (
-    <View style={s.root}>
+    <Animated.View style={[s.root, { transform: [{ translateY: swipeY }] }]} {...swipePan.panHandlers}>
       <StatusBar hidden />
-      {mediaUri
-        ? <Image source={{ uri: mediaUri }} style={StyleSheet.absoluteFillObject} resizeMode="contain" />
-        : <LinearGradient colors={[c1, c2]} style={StyleSheet.absoluteFillObject} />
-      }
+
+      {/* Fundo */}
+      {mediaUri ? (
+        <Image source={{ uri: mediaUri }} style={StyleSheet.absoluteFillObject} resizeMode="contain" />
+      ) : currentBg.type === "gradient" ? (
+        <LinearGradient colors={currentBg.colors} style={StyleSheet.absoluteFillObject} />
+      ) : (
+        <View style={[StyleSheet.absoluteFillObject, { backgroundColor: currentBg.color }]} />
+      )}
       <View style={s.previewOverlay} pointerEvents="none" />
 
+      {/* Textos arrastáveis */}
       {textLayers.map(layer => (
-        <DraggableText key={layer.id} layer={layer} isSelected={selectedLayerId === layer.id}
+        <DraggableText
+          key={layer.id}
+          layer={layer}
+          isSelected={selectedLayerId === layer.id}
           onSelect={() => setSelectedLayerId(layer.id === selectedLayerId ? null : layer.id)}
           onMove={(x, y) => setTextLayers(prev => prev.map(l => l.id === layer.id ? { ...l, x, y } : l))}
         />
       ))}
 
+      {/* Modal de texto */}
       {editingText && (
         <KeyboardAvoidingView style={StyleSheet.absoluteFillObject} behavior={Platform.OS === "ios" ? "padding" : "height"} pointerEvents="box-none">
           <TouchableWithoutFeedback onPress={() => { Keyboard.dismiss(); setEditingText(false); }}>
@@ -255,59 +391,112 @@ export default function FlashEditorScreen({ navigation }: any) {
         </KeyboardAvoidingView>
       )}
 
+      {/* Barra superior */}
       <View style={[s.topBar, { paddingTop: insets.top + 10 }]}>
-        <TouchableOpacity style={s.editorBtn} onPress={resetEditor} activeOpacity={0.8}>
+        <TouchableOpacity style={s.editorBtn} onPress={confirmDiscard} activeOpacity={0.8}>
           <Ionicons name="arrow-back" size={20} color="#fff" />
         </TouchableOpacity>
         <View style={{ flexDirection: "row", gap: 8 }}>
-          {!mediaUri && <TouchableOpacity style={s.editorBtn} onPress={() => setBgIndex(i => (i + 1) % BG_GRADIENTS.length)} activeOpacity={0.8}><Ionicons name="color-palette-outline" size={20} color="#fff" /></TouchableOpacity>}
-          <TouchableOpacity style={s.editorBtn} onPress={() => { setCurrentText(""); setSelectedLayerId(null); setEditingText(true); }} activeOpacity={0.8}><Ionicons name="text" size={20} color="#fff" /></TouchableOpacity>
-          {selectedLayerId && <TouchableOpacity style={[s.editorBtn, { backgroundColor: "rgba(239,68,68,0.75)" }]} onPress={() => removeLayer(selectedLayerId)} activeOpacity={0.8}><Ionicons name="trash-outline" size={18} color="#fff" /></TouchableOpacity>}
+          {!mediaUri && (
+            <TouchableOpacity style={s.editorBtn} onPress={() => setBgIndex(i => (i + 1) % ALL_BGS.length)} activeOpacity={0.8}>
+              <Ionicons name="color-palette-outline" size={20} color="#fff" />
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity style={s.editorBtn} onPress={() => { setCurrentText(""); setSelectedLayerId(null); setEditingText(true); }} activeOpacity={0.8}>
+            <Ionicons name="text" size={20} color="#fff" />
+          </TouchableOpacity>
+          {selectedLayerId && (
+            <TouchableOpacity style={[s.editorBtn, { backgroundColor: "rgba(239,68,68,0.75)" }]} onPress={() => removeLayer(selectedLayerId)} activeOpacity={0.8}>
+              <Ionicons name="trash-outline" size={18} color="#fff" />
+            </TouchableOpacity>
+          )}
         </View>
       </View>
+
+      {/* Hint swipe */}
+      <SwipeHint />
 
       {textLayers.length > 0 && !editingText && <DragHint />}
 
+      {/* Barra inferior */}
       <View style={[s.bottomBar, { paddingBottom: insets.bottom + 20 }]}>
-        <View style={s.flashTag}>
-          <Ionicons name="flash" size={12} color="#FBBF24" />
-          <Text style={s.flashTagText}>24h</Text>
+        {/* Seletor de duração */}
+        <View style={s.durationMini}>
+          {DURATIONS.map(d => (
+            <TouchableOpacity
+              key={d.hours}
+              style={[s.durationMiniBtn, duration === d.hours && s.durationMiniBtnActive]}
+              onPress={() => setDuration(d.hours)}
+              activeOpacity={0.8}
+            >
+              <Text style={[s.durationMiniLabel, duration === d.hours && s.durationMiniLabelActive]}>
+                {d.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
         </View>
-        <TouchableOpacity style={[s.publishBtn, uploading && { opacity: 0.55 }]} onPress={handlePublish} disabled={uploading} activeOpacity={0.88}>
-          {uploading
-            ? <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}><ActivityIndicator color="#fff" size="small" /><Text style={s.publishLabel}>{uploadProgress || "Enviando..."}</Text></View>
-            : <><Text style={s.publishLabel}>Publicar</Text><Ionicons name="send" size={15} color="#fff" /></>
-          }
+
+        <TouchableOpacity
+          style={[s.publishBtn, uploading && { opacity: 0.55 }]}
+          onPress={handlePublish}
+          disabled={uploading}
+          activeOpacity={0.88}
+        >
+          {uploading ? (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <ActivityIndicator color="#fff" size="small" />
+              <Text style={s.publishLabel}>{uploadProgress || "Enviando..."}</Text>
+            </View>
+          ) : (
+            <>
+              <Text style={s.publishLabel}>Publicar</Text>
+              <Ionicons name="send" size={15} color="#fff" />
+            </>
+          )}
         </TouchableOpacity>
       </View>
-    </View>
+    </Animated.View>
   );
 }
 
-function SelectCard({ icon, label, sub, onPress }: { icon: any; label: string; sub: string; onPress: () => void }) {
+// ── HeroCard ──────────────────────────────────────────────────────────────────
+function HeroCard({ icon, label, sub, accent, onPress }: {
+  icon: any; label: string; sub: string; accent: string; onPress: () => void;
+}) {
   return (
-    <TouchableOpacity style={sc.card} onPress={onPress} activeOpacity={0.82}>
-      <View style={sc.iconWrap}><Ionicons name={icon} size={26} color="#fff" /></View>
-      <Text style={sc.label}>{label}</Text>
-      <Text style={sc.sub}>{sub}</Text>
+    <TouchableOpacity style={hc.card} onPress={onPress} activeOpacity={0.8}>
+      <View style={[hc.iconRing, { borderColor: accent + "55" }]}>
+        <View style={[hc.iconFill, { backgroundColor: accent + "22" }]}>
+          <Ionicons name={icon} size={24} color={accent} />
+        </View>
+      </View>
+      <Text style={hc.label}>{label}</Text>
+      <Text style={hc.sub}>{sub}</Text>
     </TouchableOpacity>
   );
 }
-const sc = StyleSheet.create({
-  card: { flex: 1, alignItems: "center", gap: 8, backgroundColor: "rgba(255,255,255,0.13)", borderRadius: 22, paddingVertical: 24, paddingHorizontal: 8 },
-  iconWrap: { width: 52, height: 52, borderRadius: 26, backgroundColor: "rgba(255,255,255,0.18)", alignItems: "center", justifyContent: "center" },
-  label: { fontSize: 14, fontWeight: "700", color: "#fff", letterSpacing: -0.2 },
-  sub: { fontSize: 11, color: "rgba(255,255,255,0.55)", textAlign: "center" },
+const hc = StyleSheet.create({
+  card:     { flex: 1, alignItems: "center", gap: 10, paddingVertical: 20, paddingHorizontal: 8 },
+  iconRing: { width: 60, height: 60, borderRadius: 30, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  iconFill: { width: 52, height: 52, borderRadius: 26, alignItems: "center", justifyContent: "center" },
+  label:    { fontSize: 13, fontWeight: "700", color: "#fff", letterSpacing: 0.2 },
+  sub:      { fontSize: 11, color: "rgba(255,255,255,0.45)", textAlign: "center" },
 });
 
-function DraggableText({ layer, isSelected, onSelect, onMove }: { layer: TextLayer; isSelected: boolean; onSelect: () => void; onMove: (x: number, y: number) => void }) {
+// ── DraggableText ─────────────────────────────────────────────────────────────
+function DraggableText({ layer, isSelected, onSelect, onMove }: {
+  layer: TextLayer; isSelected: boolean; onSelect: () => void; onMove: (x: number, y: number) => void;
+}) {
   const posX = useRef(new Animated.Value(layer.x)).current;
   const posY = useRef(new Animated.Value(layer.y)).current;
   const cur  = useRef({ x: layer.x, y: layer.y });
   const pan  = useRef(PanResponder.create({
     onStartShouldSetPanResponder: () => true,
     onMoveShouldSetPanResponder:  () => true,
-    onPanResponderGrant: () => { posX.setOffset(cur.current.x); posY.setOffset(cur.current.y); posX.setValue(0); posY.setValue(0); onSelect(); },
+    onPanResponderGrant: () => {
+      posX.setOffset(cur.current.x); posY.setOffset(cur.current.y);
+      posX.setValue(0); posY.setValue(0); onSelect();
+    },
     onPanResponderMove: Animated.event([null, { dx: posX, dy: posY }], { useNativeDriver: false }),
     onPanResponderRelease: (_e, g) => {
       posX.flattenOffset(); posY.flattenOffset();
@@ -318,7 +507,9 @@ function DraggableText({ layer, isSelected, onSelect, onMove }: { layer: TextLay
   })).current;
   return (
     <Animated.View style={[dt.wrap, { transform: [{ translateX: posX }, { translateY: posY }] }, isSelected && dt.selected]} {...pan.panHandlers}>
-      <Text style={{ color: layer.color, fontSize: layer.size, fontWeight: layer.bold ? "800" : "500", textShadowColor: "rgba(0,0,0,0.65)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 5 }}>{layer.text}</Text>
+      <Text style={{ color: layer.color, fontSize: layer.size, fontWeight: layer.bold ? "800" : "500", textShadowColor: "rgba(0,0,0,0.7)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 5 }}>
+        {layer.text}
+      </Text>
     </Animated.View>
   );
 }
@@ -327,54 +518,100 @@ const dt = StyleSheet.create({
   selected: { borderWidth: StyleSheet.hairlineWidth, borderColor: "rgba(255,255,255,0.7)", borderRadius: 6, borderStyle: "dashed" },
 });
 
+// ── Hints ─────────────────────────────────────────────────────────────────────
 function DragHint() {
   const opacity = useRef(new Animated.Value(1)).current;
-  useEffect(() => { const t = setTimeout(() => Animated.timing(opacity, { toValue: 0, duration: 500, useNativeDriver: true }).start(), 2500); return () => clearTimeout(t); }, []);
+  useEffect(() => {
+    const t = setTimeout(() => Animated.timing(opacity, { toValue: 0, duration: 500, useNativeDriver: true }).start(), 2500);
+    return () => clearTimeout(t);
+  }, []);
   return (
-    <Animated.View style={[dh.wrap, { opacity }]}>
+    <Animated.View style={[hint.wrap, { opacity, bottom: 96 }]}>
       <Ionicons name="move-outline" size={12} color="rgba(255,255,255,0.7)" />
-      <Text style={dh.text}>Arraste para reposicionar</Text>
+      <Text style={hint.text}>Arraste para reposicionar</Text>
     </Animated.View>
   );
 }
-const dh = StyleSheet.create({
-  wrap: { position: "absolute", bottom: 96, alignSelf: "center", flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "rgba(0,0,0,0.48)", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, zIndex: 5 },
+
+function SwipeHint() {
+  const opacity = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    const t = setTimeout(() => Animated.timing(opacity, { toValue: 0, duration: 500, useNativeDriver: true }).start(), 3000);
+    return () => clearTimeout(t);
+  }, []);
+  return (
+    <Animated.View style={[hint.wrap, { opacity, top: "45%" as any }]}>
+      <Ionicons name="chevron-down" size={12} color="rgba(255,255,255,0.6)" />
+      <Text style={hint.text}>Deslize para baixo para cancelar</Text>
+    </Animated.View>
+  );
+}
+
+const hint = StyleSheet.create({
+  wrap: { position: "absolute", alignSelf: "center", flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "rgba(0,0,0,0.48)", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, zIndex: 5 },
   text: { color: "rgba(255,255,255,0.7)", fontSize: 11 },
 });
 
+// ── Styles ────────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#000" },
-  iconBtn: { position: "absolute", zIndex: 20, width: 38, height: 38, borderRadius: 19, backgroundColor: "rgba(0,0,0,0.35)", alignItems: "center", justifyContent: "center" },
-  selectHero: { flex: 1, alignItems: "center", justifyContent: "center", gap: 6 },
-  heroEmoji: { fontSize: 56, lineHeight: 70 },
-  heroTitle: { fontSize: 32, fontWeight: "800", color: "#fff", letterSpacing: -1 },
-  heroSub: { fontSize: 14, color: "rgba(255,255,255,0.6)", letterSpacing: 0.2 },
-  selectCards: { flexDirection: "row", gap: 12, paddingHorizontal: 20 },
-  camTop: { position: "absolute", top: 0, left: 0, right: 0, flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 16, zIndex: 10 },
-  camBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(0,0,0,0.4)", alignItems: "center", justifyContent: "center" },
-  camBtnActive: { backgroundColor: "rgba(251,191,36,0.55)" },
-  camBottom: { position: "absolute", bottom: 0, left: 0, right: 0, flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 36, zIndex: 10 },
-  galleryBtn: { width: 44, height: 44, borderRadius: 12, backgroundColor: "rgba(255,255,255,0.15)", alignItems: "center", justifyContent: "center" },
-  shutter: { width: 76, height: 76, borderRadius: 38, borderWidth: 4, borderColor: "#fff", alignItems: "center", justifyContent: "center" },
-  shutterInner: { width: 60, height: 60, borderRadius: 30, backgroundColor: "#fff" },
-  previewOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.06)" },
-  topBar: { position: "absolute", top: 0, left: 0, right: 0, flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 16, zIndex: 10 },
-  editorBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: "rgba(0,0,0,0.45)", alignItems: "center", justifyContent: "center" },
-  bottomBar: { position: "absolute", bottom: 0, left: 0, right: 0, flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 20, paddingTop: 14, zIndex: 10 },
-  flashTag: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "rgba(0,0,0,0.45)", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16 },
-  flashTagText: { color: "#FBBF24", fontSize: 12, fontWeight: "700" },
-  publishBtn: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#7C3AED", paddingHorizontal: 22, paddingVertical: 12, borderRadius: 26 },
-  publishLabel: { color: "#fff", fontWeight: "700", fontSize: 15 },
-  textModalBg: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "flex-end" },
-  textModal: { backgroundColor: "rgba(20,20,30,0.97)", borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, gap: 14 },
-  colorRow: { gap: 8, paddingVertical: 2 },
-  colorDot: { width: 28, height: 28, borderRadius: 14 },
+
+  // Orbs decorativos hero
+  orb1: { position: "absolute", width: 280, height: 280, borderRadius: 140, backgroundColor: "#7C3AED", opacity: 0.18, top: -60, right: -80 },
+  orb2: { position: "absolute", width: 200, height: 200, borderRadius: 100, backgroundColor: "#06B6D4", opacity: 0.12, top: 120, left: -60 },
+  orb3: { position: "absolute", width: 160, height: 160, borderRadius: 80,  backgroundColor: "#F43F5E", opacity: 0.10, bottom: 160, right: 20 },
+
+  // Hero
+  iconBtn:      { position: "absolute", zIndex: 20, width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.08)", alignItems: "center", justifyContent: "center" },
+  heroWrap:     { flex: 1, paddingHorizontal: 28, gap: 16 },
+  heroBadge:    { flexDirection: "row", alignSelf: "flex-start", backgroundColor: "rgba(124,58,237,0.25)", borderWidth: StyleSheet.hairlineWidth, borderColor: "rgba(124,58,237,0.5)", paddingHorizontal: 12, paddingVertical: 5, borderRadius: 20 },
+  heroBadgeText:{ color: "#A78BFA", fontSize: 11, fontWeight: "800", letterSpacing: 1.5 },
+  heroTitle:    { fontSize: 30, fontWeight: "800", color: "#fff", lineHeight: 38, letterSpacing: -0.5 },
+  heroSub:      { fontSize: 14, color: "rgba(255,255,255,0.45)", lineHeight: 20 },
+  durationRow:  { flexDirection: "row", gap: 8, marginTop: 8 },
+  durationBtn:  { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.08)", borderWidth: StyleSheet.hairlineWidth, borderColor: "rgba(255,255,255,0.1)" },
+  durationBtnActive: { backgroundColor: "rgba(124,58,237,0.35)", borderColor: "#7C3AED" },
+  durationLabel:{ color: "rgba(255,255,255,0.5)", fontSize: 13, fontWeight: "600" },
+  durationLabelActive: { color: "#A78BFA", fontWeight: "800" },
+  durationHint: { fontSize: 12, color: "rgba(255,255,255,0.3)" },
+  actionGrid:   { flexDirection: "row", paddingHorizontal: 16, paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "rgba(255,255,255,0.08)" },
+
+  // Câmera
+  camTop:     { position: "absolute", top: 0, left: 0, right: 0, flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 16, zIndex: 10 },
+  camBtn:     { width: 38, height: 38, borderRadius: 19, backgroundColor: "rgba(0,0,0,0.45)", alignItems: "center", justifyContent: "center" },
+  camBtnActive:{ backgroundColor: "rgba(251,191,36,0.5)" },
+  camBottom:  { position: "absolute", bottom: 0, left: 0, right: 0, flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 40, zIndex: 10 },
+  galleryBtn: { width: 42, height: 42, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.12)", alignItems: "center", justifyContent: "center" },
+  shutter:    { width: 74, height: 74, borderRadius: 37, borderWidth: 4, borderColor: "#fff", alignItems: "center", justifyContent: "center" },
+  shutterInner:{ width: 58, height: 58, borderRadius: 29, backgroundColor: "#fff" },
+
+  // Editor
+  previewOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.05)" },
+  topBar:     { position: "absolute", top: 0, left: 0, right: 0, flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 16, zIndex: 10 },
+  editorBtn:  { width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center" },
+  bottomBar:  { position: "absolute", bottom: 0, left: 0, right: 0, flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 16, paddingTop: 12, zIndex: 10 },
+
+  // Duração mini (editor)
+  durationMini:       { flexDirection: "row", gap: 4, backgroundColor: "rgba(0,0,0,0.45)", borderRadius: 20, padding: 3 },
+  durationMiniBtn:    { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 16 },
+  durationMiniBtnActive: { backgroundColor: "rgba(124,58,237,0.7)" },
+  durationMiniLabel:  { color: "rgba(255,255,255,0.5)", fontSize: 11, fontWeight: "600" },
+  durationMiniLabelActive: { color: "#fff", fontWeight: "800" },
+
+  publishBtn:   { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#7C3AED", paddingHorizontal: 20, paddingVertical: 11, borderRadius: 24 },
+  publishLabel: { color: "#fff", fontWeight: "700", fontSize: 14 },
+
+  // Modal texto
+  textModalBg:    { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "flex-end" },
+  textModal:      { backgroundColor: "rgba(15,15,20,0.98)", borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, gap: 14 },
+  colorRow:       { gap: 8, paddingVertical: 2 },
+  colorDot:       { width: 28, height: 28, borderRadius: 14 },
   colorDotActive: { borderWidth: 3, borderColor: "#fff", transform: [{ scale: 1.18 }] },
-  textControls: { flexDirection: "row", alignItems: "center", gap: 8 },
-  textCtrlBtn: { width: 34, height: 34, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.1)", alignItems: "center", justifyContent: "center" },
+  textControls:   { flexDirection: "row", alignItems: "center", gap: 8 },
+  textCtrlBtn:    { width: 34, height: 34, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.1)", alignItems: "center", justifyContent: "center" },
   textCtrlBtnActive: { backgroundColor: "rgba(124,58,237,0.6)" },
-  sizeLabel: { paddingHorizontal: 8 },
-  textInput: { minHeight: 56, textAlignVertical: "top", paddingVertical: 4 },
-  addBtn: { backgroundColor: "#7C3AED", borderRadius: 14, paddingVertical: 12, alignItems: "center" },
-  addBtnLabel: { color: "#fff", fontWeight: "700", fontSize: 14 },
+  sizeLabel:      { paddingHorizontal: 8 },
+  textInput:      { minHeight: 56, textAlignVertical: "top", paddingVertical: 4 },
+  addBtn:         { backgroundColor: "#7C3AED", borderRadius: 14, paddingVertical: 12, alignItems: "center" },
+  addBtnLabel:    { color: "#fff", fontWeight: "700", fontSize: 14 },
 });

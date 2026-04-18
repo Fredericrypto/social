@@ -11,8 +11,10 @@ export class StoriesService {
     @InjectRepository(StoryView) private readonly viewRepo: Repository<StoryView>,
   ) {}
 
-  async create(userId: string, mediaUrl: string, caption?: string): Promise<Story> {
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  // durationHours: 1 | 6 | 12 | 24 — padrão 24h
+  async create(userId: string, mediaUrl: string, caption?: string, durationHours = 24): Promise<Story> {
+    const hours = [1, 6, 12, 24].includes(durationHours) ? durationHours : 24;
+    const expiresAt = new Date(Date.now() + hours * 60 * 60 * 1000);
     return this.storyRepo.save(this.storyRepo.create({ userId, mediaUrl, caption, expiresAt }));
   }
 
@@ -52,7 +54,6 @@ export class StoriesService {
     });
   }
 
-  // Retorna stories ativos de um usuário pelo username — usado no perfil
   async getStoriesByUsername(username: string, viewerId: string): Promise<any> {
     const stories = await this.storyRepo
       .createQueryBuilder("story")

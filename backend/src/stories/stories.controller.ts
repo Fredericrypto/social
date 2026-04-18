@@ -2,11 +2,19 @@ import { Controller, Post, Get, Delete, Body, Param, UseGuards, Request } from "
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { StoriesService } from "./stories.service";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
-import { IsString, IsOptional } from "class-validator";
+import { IsString, IsOptional, IsIn, IsNumber } from "class-validator";
 
 class CreateStoryDto {
-  @IsString() mediaUrl: string;
-  @IsOptional() @IsString() caption?: string;
+  @IsString()
+  mediaUrl: string;
+
+  @IsOptional()
+  @IsString()
+  caption?: string;
+
+  @IsOptional()
+  @IsNumber()
+  durationHours?: number; // 1 | 6 | 12 | 24
 }
 
 @ApiTags("stories")
@@ -18,7 +26,7 @@ export class StoriesController {
 
   @Post()
   create(@Request() req, @Body() dto: CreateStoryDto) {
-    return this.storiesService.create(req.user.id, dto.mediaUrl, dto.caption);
+    return this.storiesService.create(req.user.id, dto.mediaUrl, dto.caption, dto.durationHours);
   }
 
   @Get("feed")
@@ -31,7 +39,6 @@ export class StoriesController {
     return this.storiesService.getMyStories(req.user.id);
   }
 
-  // Endpoint para ProfileScreen e UserProfileScreen
   @Get("user/:username")
   getByUsername(@Request() req, @Param("username") username: string) {
     return this.storiesService.getStoriesByUsername(username, req.user.id);
