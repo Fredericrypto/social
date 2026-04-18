@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useCallback } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
   View, ScrollView, TouchableOpacity, Text, StyleSheet,
   Image, Modal, Dimensions, StatusBar, Animated,
@@ -15,11 +15,12 @@ const { width: SW, height: SH } = Dimensions.get("window");
 const STORY_DURATION = 5000;
 
 // ─── Viewer ───────────────────────────────────────────────────────────────────
-function StoryViewer({ allGroups, startIndex, onClose, onDeleteStory }: {
+function StoryViewer({ allGroups, startIndex, onClose, onDeleteStory, onAddNew }: {
   allGroups: any[];
   startIndex: number;
   onClose: () => void;
   onDeleteStory: (storyId: string) => void;
+  onAddNew: () => void;
 }) {
   const { user: me } = useAuthStore();
   const [groupIndex, setGroupIndex] = useState(startIndex);
@@ -36,7 +37,7 @@ function StoryViewer({ allGroups, startIndex, onClose, onDeleteStory }: {
   const currentStory = currentGroup?.stories[storyIndex];
   const isOwn = currentGroup?.isOwn || currentGroup?.user?.id === me?.id;
 
-  // ── Swipe down para fechar ─────────────────────────────────────────────
+  // Swipe down para fechar
   const swipeY = useRef(new Animated.Value(0)).current;
   const swipePan = useRef(PanResponder.create({
     onMoveShouldSetPanResponder: (_, g) => g.dy > 10 && Math.abs(g.dy) > Math.abs(g.dx),
@@ -68,11 +69,9 @@ function StoryViewer({ allGroups, startIndex, onClose, onDeleteStory }: {
     animRef.current?.stop();
     startedAt.current = Date.now();
     animRef.current = Animated.timing(progress, {
-      toValue: 1,
-      duration: STORY_DURATION,
-      useNativeDriver: false,
+      toValue: 1, duration: STORY_DURATION, useNativeDriver: false,
     });
-    animRef.current.start(({ finished }) => { if (finished) goNext(); });
+    animRef.current.start(({ finished }: { finished: boolean }) => { if (finished) goNext(); });
   };
 
   const resumeAnim = () => {
@@ -81,21 +80,15 @@ function StoryViewer({ allGroups, startIndex, onClose, onDeleteStory }: {
     startedAt.current = Date.now();
     animRef.current?.stop();
     animRef.current = Animated.timing(progress, {
-      toValue: 1,
-      duration: remaining,
-      useNativeDriver: false,
+      toValue: 1, duration: remaining, useNativeDriver: false,
     });
-    animRef.current.start(({ finished }) => { if (finished) goNext(); });
+    animRef.current.start(({ finished }: { finished: boolean }) => { if (finished) goNext(); });
   };
 
   const goNext = () => {
-    if (storyIndex < currentGroup.stories.length - 1) {
-      setStoryIndex(i => i + 1);
-    } else if (groupIndex < allGroups.length - 1) {
-      setGroupIndex(i => i + 1); setStoryIndex(0);
-    } else {
-      onClose();
-    }
+    if (storyIndex < currentGroup.stories.length - 1) { setStoryIndex(i => i + 1); }
+    else if (groupIndex < allGroups.length - 1) { setGroupIndex(i => i + 1); setStoryIndex(0); }
+    else { onClose(); }
   };
 
   const goPrev = () => {
@@ -103,13 +96,8 @@ function StoryViewer({ allGroups, startIndex, onClose, onDeleteStory }: {
     else if (groupIndex > 0) { setGroupIndex(i => i - 1); setStoryIndex(0); }
   };
 
-  const handleLongPressIn = () => {
-    setPaused(true); setUiVisible(false);
-  };
-
-  const handleLongPressOut = () => {
-    setPaused(false); setUiVisible(true);
-  };
+  const handleLongPressIn  = () => { setPaused(true);  setUiVisible(false); };
+  const handleLongPressOut = () => { setPaused(false); setUiVisible(true);  };
 
   const handleDelete = () => {
     Alert.alert("Deletar Flash?", "Essa ação não pode ser desfeita.", [
@@ -120,14 +108,10 @@ function StoryViewer({ allGroups, startIndex, onClose, onDeleteStory }: {
           await storiesService.delete(currentStory.id);
           onDeleteStory(currentStory.id);
           if (currentGroup.stories.length <= 1) {
-            if (groupIndex < allGroups.length - 1) {
-              setGroupIndex(i => i + 1); setStoryIndex(0);
-            } else {
-              onClose();
-            }
-          } else {
-            goNext();
-          }
+            groupIndex < allGroups.length - 1
+              ? (setGroupIndex(i => i + 1), setStoryIndex(0))
+              : onClose();
+          } else { goNext(); }
         },
       },
     ]);
@@ -140,7 +124,6 @@ function StoryViewer({ allGroups, startIndex, onClose, onDeleteStory }: {
       <Animated.View style={[vw.root, { transform: [{ translateY: swipeY }] }]} {...swipePan.panHandlers}>
         <StatusBar hidden />
 
-        {/* Fundo */}
         {currentStory.mediaUrl ? (
           <Image source={{ uri: currentStory.mediaUrl }} style={vw.bg} resizeMode="cover" />
         ) : (
@@ -152,7 +135,6 @@ function StoryViewer({ allGroups, startIndex, onClose, onDeleteStory }: {
           pointerEvents="none"
         />
 
-        {/* Progress bars */}
         {uiVisible && (
           <View style={vw.progressRow}>
             {currentGroup.stories.map((_: any, i: number) => (
@@ -168,7 +150,6 @@ function StoryViewer({ allGroups, startIndex, onClose, onDeleteStory }: {
           </View>
         )}
 
-        {/* Header */}
         {uiVisible && (
           <View style={vw.header}>
             <Avatar uri={currentGroup.user.avatarUrl} name={currentGroup.user.displayName || currentGroup.user.username} size={34} showRing={currentGroup.hasUnviewed} />
@@ -181,39 +162,39 @@ function StoryViewer({ allGroups, startIndex, onClose, onDeleteStory }: {
               </Text>
             </View>
             {isOwn && (
-              <TouchableOpacity onPress={handleDelete} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                <Ionicons name="trash-outline" size={20} color="rgba(255,255,255,0.8)" />
-              </TouchableOpacity>
+              <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+                <TouchableOpacity
+                  onPress={() => { onClose(); onAddNew(); }}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  style={vw.headerBtn}
+                >
+                  <Ionicons name="add" size={22} color="#fff" />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={handleDelete}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <Ionicons name="trash-outline" size={18} color="rgba(255,255,255,0.8)" />
+                </TouchableOpacity>
+              </View>
             )}
-            <TouchableOpacity onPress={onClose} style={{ marginLeft: 12 }} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+            <TouchableOpacity onPress={onClose} style={{ marginLeft: 8 }} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
               <Ionicons name="close" size={22} color="#fff" />
             </TouchableOpacity>
           </View>
         )}
 
-        {/* Caption */}
         {currentStory.caption && uiVisible && (
           <View style={vw.captionWrap}>
             <Text style={vw.caption}>{currentStory.caption}</Text>
           </View>
         )}
 
-        {/* Touch areas — esquerda/direita + long press */}
         <View style={vw.touchRow} pointerEvents="box-none">
-          <TouchableWithoutFeedback
-            onPress={goPrev}
-            onLongPress={handleLongPressIn}
-            onPressOut={handleLongPressOut}
-            delayLongPress={200}
-          >
+          <TouchableWithoutFeedback onPress={goPrev} onLongPress={handleLongPressIn} onPressOut={handleLongPressOut} delayLongPress={200}>
             <View style={{ flex: 1, height: "100%" }} />
           </TouchableWithoutFeedback>
-          <TouchableWithoutFeedback
-            onPress={goNext}
-            onLongPress={handleLongPressIn}
-            onPressOut={handleLongPressOut}
-            delayLongPress={200}
-          >
+          <TouchableWithoutFeedback onPress={goNext} onLongPress={handleLongPressIn} onPressOut={handleLongPressOut} delayLongPress={200}>
             <View style={{ flex: 1, height: "100%" }} />
           </TouchableWithoutFeedback>
         </View>
@@ -234,6 +215,7 @@ const vw = StyleSheet.create({
   captionWrap: { position: "absolute", bottom: 80, left: 16, right: 16, zIndex: 10 },
   caption:     { color: "#fff", fontSize: 15, textShadowColor: "rgba(0,0,0,0.8)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
   touchRow:    { ...StyleSheet.absoluteFillObject, flexDirection: "row", top: 100, zIndex: 5 },
+  headerBtn:   { width: 32, height: 32, borderRadius: 16, backgroundColor: "rgba(255,255,255,0.15)", alignItems: "center", justifyContent: "center" },
 });
 
 // ─── Componente principal ─────────────────────────────────────────────────────
@@ -242,8 +224,8 @@ interface StoriesProps { navigation: any; }
 export default function Stories({ navigation }: StoriesProps) {
   const { theme } = useThemeStore();
   const { user }  = useAuthStore();
-  const [groups, setGroups]               = useState<any[]>([]);
-  const [viewerOpen, setViewerOpen]       = useState(false);
+  const [groups, setGroups]                     = useState<any[]>([]);
+  const [viewerOpen, setViewerOpen]             = useState(false);
   const [viewerGroupIndex, setViewerGroupIndex] = useState(0);
 
   useEffect(() => { loadStories(); }, []);
@@ -256,17 +238,26 @@ export default function Stories({ navigation }: StoriesProps) {
     setViewerGroupIndex(index); setViewerOpen(true);
   };
 
+  // ── Obs1 fix: clique no próprio avatar com story → Ver ou Novo Flash ──────
   const handleMyStoryPress = () => {
     const myGroup = groups.find(g => g.isOwn);
-    if (myGroup) { openViewer(groups.indexOf(myGroup)); }
-    else { navigation.navigate("FlashEditor"); }
+    if (myGroup) {
+      Alert.alert("Seu Flash", "O que deseja fazer?", [
+        { text: "Ver Flash",  onPress: () => openViewer(groups.indexOf(myGroup)) },
+        { text: "Novo Flash", onPress: () => navigation.navigate("FlashEditor") },
+        { text: "Cancelar",   style: "cancel" },
+      ]);
+    } else {
+      navigation.navigate("FlashEditor");
+    }
   };
 
   const handleDeleteStory = (storyId: string) => {
-    setGroups(prev => prev.map(g => ({
-      ...g,
-      stories: g.stories.filter((s: any) => s.id !== storyId),
-    })).filter(g => g.stories.length > 0));
+    setGroups(prev =>
+      prev
+        .map(g => ({ ...g, stories: g.stories.filter((s: any) => s.id !== storyId) }))
+        .filter(g => g.stories.length > 0)
+    );
   };
 
   const myGroup     = groups.find(g => g.isOwn);
@@ -274,11 +265,8 @@ export default function Stories({ navigation }: StoriesProps) {
 
   return (
     <>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.container}
-      >
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.container}>
+
         {/* Meu story */}
         <TouchableOpacity style={styles.item} onPress={handleMyStoryPress} activeOpacity={0.8}>
           {myGroup ? (
@@ -328,6 +316,7 @@ export default function Stories({ navigation }: StoriesProps) {
           startIndex={viewerGroupIndex}
           onClose={() => { setViewerOpen(false); loadStories(); }}
           onDeleteStory={handleDeleteStory}
+          onAddNew={() => navigation.navigate("FlashEditor")}
         />
       )}
     </>
