@@ -24,6 +24,8 @@ import {
   GestureDetector, Gesture, GestureHandlerRootView,
 } from "react-native-gesture-handler";
 import { useThemeStore } from "../../store/theme.store";
+import * as NavigationBar from "expo-navigation-bar";
+import { useEffect } from "react";
 import { postsService } from "../../services/posts.service";
 import { api } from "../../services/api";
 
@@ -183,6 +185,16 @@ const tl = StyleSheet.create({
 // ─────────────────────────────────────────────────────────────────────────────
 export default function FlashEditorScreen({ navigation }: any) {
   const { theme } = useThemeStore();
+
+  useEffect(() => {
+    // Esconde a navigation bar do Android no Flash
+    NavigationBar.setVisibilityAsync("hidden").catch(() => {});
+    return () => {
+      // Restaura ao sair
+      NavigationBar.setVisibilityAsync("visible").catch(() => {});
+      NavigationBar.setBackgroundColorAsync(theme.background).catch(() => {});
+    };
+  }, []);
   const insets = useSafeAreaInsets();
   const [permission, requestPermission] = useCameraPermissions();
 
@@ -328,7 +340,7 @@ export default function FlashEditorScreen({ navigation }: any) {
         <LinearGradient colors={["#0A0A0F","#1A0A2E","#0A1628","#0A0A0F"]} locations={[0,0.35,0.7,1]} style={StyleSheet.absoluteFillObject} />
         <View style={s.orb1} /><View style={s.orb2} /><View style={s.orb3} />
 
-        <TouchableOpacity style={[s.iconBtn, { top:insets.top+12, left:16 }]} onPress={() => navigation.goBack()} activeOpacity={0.8}>
+        <TouchableOpacity style={[s.iconBtn, { top:insets.top+12, left:16 }]} onPress={() => navigation.navigate('Tabs', { screen: 'Feed' })} activeOpacity={0.8}>
           <Ionicons name="close" size={20} color="rgba(255,255,255,0.8)" />
         </TouchableOpacity>
 

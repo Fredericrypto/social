@@ -13,6 +13,7 @@ import PostCard from '../../components/feed/PostCard';
 import Stories from '../../components/feed/Stories';
 
 export default function FeedScreen({ navigation }: any) {
+  const [storiesKey, setStoriesKey] = React.useState(0);
   const [posts,      setPosts]      = useState<any[]>([]);
   const [page,       setPage]       = useState(1);
   const [loading,    setLoading]    = useState(true);
@@ -153,7 +154,7 @@ export default function FeedScreen({ navigation }: any) {
     finally { setLoading(false); setRefreshing(false); }
   }, [showPill]);
 
-  useFocusEffect(useCallback(() => { loadFeed(1); }, []));
+  useFocusEffect(useCallback(() => { loadFeed(1); setStoriesKey(k => k + 1); }, []));
 
   // ── Tab press → scroll to top + refresh ──────────────────────────────
   useEffect(() => {
@@ -192,7 +193,7 @@ export default function FeedScreen({ navigation }: any) {
         </View>
       </View>
 
-      <Stories navigation={navigation} />
+      <Stories navigation={navigation} refreshKey={storiesKey} />
       <View style={{ height: 1, backgroundColor: theme.border }} />
     </View>
   );

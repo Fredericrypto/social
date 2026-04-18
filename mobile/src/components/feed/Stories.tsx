@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
 import {
   View, ScrollView, TouchableOpacity, Text, StyleSheet,
   Image, Modal, Dimensions, StatusBar, Animated,
@@ -15,12 +15,13 @@ const { width: SW, height: SH } = Dimensions.get("window");
 const STORY_DURATION = 5000;
 
 // ─── Viewer ───────────────────────────────────────────────────────────────────
-function StoryViewer({ allGroups, startIndex, onClose, onDeleteStory, onAddNew }: {
+function StoryViewer({ allGroups, startIndex, onClose, onDeleteStory, onAddNew, navigation }: {
   allGroups: any[];
   startIndex: number;
   onClose: () => void;
   onDeleteStory: (storyId: string) => void;
   onAddNew: () => void;
+  navigation: any;
 }) {
   const { user: me } = useAuthStore();
   const [groupIndex, setGroupIndex] = useState(startIndex);
@@ -178,7 +179,7 @@ function StoryViewer({ allGroups, startIndex, onClose, onDeleteStory, onAddNew }
                 </TouchableOpacity>
               </View>
             )}
-            <TouchableOpacity onPress={onClose} style={{ marginLeft: 8 }} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+            <TouchableOpacity onPress={() => { onClose(); navigation.navigate('Tabs', { screen: 'Feed' }); }} style={{ marginLeft: 8 }} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
               <Ionicons name="close" size={22} color="#fff" />
             </TouchableOpacity>
           </View>
@@ -219,20 +220,20 @@ const vw = StyleSheet.create({
 });
 
 // ─── Componente principal ─────────────────────────────────────────────────────
-interface StoriesProps { navigation: any; }
+interface StoriesProps { navigation: any; refreshKey?: number; }
 
-export default function Stories({ navigation }: StoriesProps) {
+export default function Stories({ navigation, refreshKey = 0 }: StoriesProps) {
   const { theme } = useThemeStore();
   const { user }  = useAuthStore();
   const [groups, setGroups]                     = useState<any[]>([]);
   const [viewerOpen, setViewerOpen]             = useState(false);
   const [viewerGroupIndex, setViewerGroupIndex] = useState(0);
 
-  useEffect(() => { loadStories(); }, []);
-
   const loadStories = async () => {
     try { setGroups(await storiesService.getFeed()); } catch {}
   };
+
+  useEffect(() => { loadStories(); }, [refreshKey]);
 
   const openViewer = (index: number) => {
     setViewerGroupIndex(index); setViewerOpen(true);
@@ -317,6 +318,7 @@ export default function Stories({ navigation }: StoriesProps) {
           onClose={() => { setViewerOpen(false); loadStories(); }}
           onDeleteStory={handleDeleteStory}
           onAddNew={() => navigation.navigate("FlashEditor")}
+          navigation={navigation}
         />
       )}
     </>

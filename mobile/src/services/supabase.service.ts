@@ -1,7 +1,8 @@
 /**
  * supabase.service.ts
  * Upload direto mobile → Supabase Storage
- * Compressão obrigatória via expo-image-manipulator (max 1080px, qualidade 0.82)
+ * Usa FormData com objeto file — único método que funciona no React Native
+ * Compressão via expo-image-manipulator antes do upload
  */
 import { createClient } from '@supabase/supabase-js';
 import * as ImageManipulator from 'expo-image-manipulator';
@@ -17,30 +18,35 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 
 export type UploadFolder = 'avatars' | 'posts' | 'covers' | 'stories';
 
-async function compressImage(localUri: string) {
-  return ImageManipulator.manipulateAsync(
+// Comprime e redimensiona para max 1080px antes do upload
+async function compressImage(localUri: string): Promise<string> {
+  const result = await ImageManipulator.manipulateAsync(
     localUri,
     [{ resize: { width: 1080 } }],
     { compress: 0.82, format: ImageManipulator.SaveFormat.JPEG },
   );
+  return result.uri;
 }
 
 export async function uploadImage(localUri: string, folder: UploadFolder): Promise<string> {
   // 1. Comprime
-  const compressed = await compressImage(localUri);
+  const compressedUri = await compressImage(localUri);
 
-  // 2. Lê como blob
-  const response = await fetch(compressed.uri);
-  const blob     = await response.blob();
-
-  // 3. Gera chave única — usa expo-crypto (sem crypto.getRandomValues)
+  // 2. Gera chave única com expo-crypto
   const randomId = Crypto.randomUUID();
   const key      = `${folder}/${randomId}.jpg`;
 
-  // 4. Upload para Supabase
+  // 3. Monta o objeto file para React Native — não usa fetch/blob
+  const fileObject = {
+    uri:  compressedUri,
+    name: `${randomId}.jpg`,
+    type: 'image/jpeg',
+  } as unknown as File;
+
+  // 4. Upload direto via supabase-js com objeto file
   const { data, error } = await supabase.storage
     .from(BUCKET)
-    .upload(key, blob, {
+    .upload(key, fileObject, {
       contentType: 'image/jpeg',
       upsert:      false,
     });
