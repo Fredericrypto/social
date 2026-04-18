@@ -65,29 +65,28 @@ export class MediaService implements OnModuleInit {
     }
   }
 
-  // ── Gera URL de upload para MinIO local (dev) ─────────────────────────────
-  // Em produção (Supabase), não usa presigned URL — usa uploadFile() direto
   async getUploadUrl(folder: UploadFolder, ext: string) {
+    const key = `${folder}/${uuidv4()}.${ext}`;
+
     if (this.useSupabase) {
-      // Retorna uma "fake" uploadUrl apontando para o próprio backend
-      // O mobile vai fazer POST /media/upload com o arquivo
-      const key = `${folder}/${uuidv4()}.${ext}`;
+      // Em produção, não usamos presigned URL — usamos uploadFile() direto
+      // Retorna key para o controller saber qual path usar
       const publicUrl = `${this.supabaseProjectUrl}/storage/v1/object/public/${this.supabaseBucket}/${key}`;
-      // uploadUrl aponta para o endpoint do próprio backend
-      const uploadUrl = `__supabase__:${key}`;
-      return { uploadUrl, publicUrl, key };
+      return { uploadUrl: '', publicUrl, key };
     }
 
-    const key = `${folder}/${uuidv4()}.${ext}`;
     const uploadUrl = await this.minioClient.presignedPutObject(this.bucket, key, 60 * 5);
     const publicUrl = `http://${this.config.get('MINIO_ENDPOINT') || 'localhost'}:${this.config.get('MINIO_PORT') || '9000'}/${this.bucket}/${key}`;
     return { uploadUrl, publicUrl, key };
   }
 
-  // ── Upload direto para Supabase (produção) ────────────────────────────────
   async uploadFile(key: string, buffer: Buffer, mimeType: string): Promise<string> {
     if (this.useSupabase) {
       const url = `${this.supabaseProjectUrl}/storage/v1/object/${this.supabaseBucket}/${key}`;
+
+      // Converte Buffer para Uint8Array — compatível com fetch BodyInit
+      const uint8 = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+
       const response = await fetch(url, {
         method:  'POST',
         headers: {
@@ -95,7 +94,7 @@ export class MediaService implements OnModuleInit {
           'Content-Type':  mimeType,
           'x-upsert':      'true',
         },
-        body: buffer,
+        body: uint8,
       });
 
       if (!response.ok) {
@@ -119,7 +118,7 @@ export class MediaService implements OnModuleInit {
       try {
         await fetch(
           `${this.supabaseProjectUrl}/storage/v1/object/${this.supabaseBucket}/${key}`,
-          { method: 'DELETE', headers: { 'Authorization': `Bearer ${this.supabaseServiceKey}` } }
+          { method: 'DELETE', headers: { 'Authorization': `Bearer ${this.supabaseServiceKey}` } },
         );
       } catch {}
       return;
