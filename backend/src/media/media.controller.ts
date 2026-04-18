@@ -5,11 +5,11 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { IsString, IsIn } from 'class-validator';
 
 class GetUploadUrlDto {
-  @IsIn(['avatars', 'posts', 'covers'])
-  folder: 'avatars' | 'posts' | 'covers';
+  @IsIn(['avatars', 'posts', 'covers', 'stories'])
+  folder: 'avatars' | 'posts' | 'covers' | 'stories';
 
   @IsString()
-  ext: string; // jpg, png, mp4...
+  ext: string;
 }
 
 @ApiTags('media')

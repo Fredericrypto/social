@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import * as Minio from 'minio';
 import { v4 as uuidv4 } from 'uuid';
 
+type UploadFolder = 'avatars' | 'posts' | 'covers' | 'stories';
+
 @Injectable()
 export class MediaService implements OnModuleInit {
   private client: Minio.Client;
@@ -15,7 +17,6 @@ export class MediaService implements OnModuleInit {
     this.bucket = config.get('MINIO_BUCKET') || config.get('R2_BUCKET') || 'minha-rede';
 
     if (this.isProduction) {
-      // Cloudflare R2 — API compatível com S3/MinIO
       const accountId = config.get('R2_ACCOUNT_ID');
       this.client = new Minio.Client({
         endPoint: `${accountId}.r2.cloudflarestorage.com`,
@@ -25,7 +26,6 @@ export class MediaService implements OnModuleInit {
       });
       this.publicBaseUrl = config.get('R2_PUBLIC_URL') || '';
     } else {
-      // MinIO local para desenvolvimento
       this.client = new Minio.Client({
         endPoint: config.get('MINIO_ENDPOINT') || 'localhost',
         port: parseInt(config.get('MINIO_PORT') || '9000'),
@@ -38,7 +38,7 @@ export class MediaService implements OnModuleInit {
   }
 
   async onModuleInit() {
-    if (this.isProduction) return; // R2 já tem o bucket criado no dashboard
+    if (this.isProduction) return;
     try {
       const exists = await this.client.bucketExists(this.bucket);
       if (!exists) {
@@ -55,12 +55,10 @@ export class MediaService implements OnModuleInit {
     }
   }
 
-  async getUploadUrl(folder: 'avatars' | 'posts' | 'covers', ext: string) {
+  async getUploadUrl(folder: UploadFolder, ext: string) {
     const key = `${folder}/${uuidv4()}.${ext}`;
     const uploadUrl = await this.client.presignedPutObject(this.bucket, key, 60 * 5);
-    const publicUrl = this.isProduction
-      ? `${this.publicBaseUrl}/${key}`
-      : `${this.publicBaseUrl}/${key}`;
+    const publicUrl = `${this.publicBaseUrl}/${key}`;
     return { uploadUrl, publicUrl, key };
   }
 
