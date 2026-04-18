@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { ScheduleModule } from "@nestjs/schedule";
 import { ConfigModule, ConfigService } from "@nestjs/config";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { ThrottlerModule } from "@nestjs/throttler";
@@ -39,9 +40,11 @@ const ENTITIES = [User, Post, Follow, Like, Comment, Notification, Story, StoryV
 
 @Module({
   imports: [
+    ScheduleModule.forRoot(),
     ConfigModule.forRoot({ isGlobal: true, envFilePath: ".env" }),
     TypeOrmModule.forRootAsync({
-      imports: [ConfigModule],
+      imports: [
+    ConfigModule],
       useFactory: (config: ConfigService): TypeOrmModuleOptions => {
         const isProd = config.get<string>("NODE_ENV") === "production";
         const dbUrl = config.get<string>("DATABASE_URL");

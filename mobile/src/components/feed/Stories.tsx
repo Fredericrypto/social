@@ -300,14 +300,43 @@ function StoryViewer({ allGroups, startIndex, onClose, onDeleteStory, onAddNew, 
           </View>
         )}
 
-        {/* Caption */}
-        {currentStory.caption && uiVisible && (
-          <View style={vw.captionWrap}>
-            <BlurView intensity={40} tint="dark" style={vw.captionBlur}>
-              <Text style={vw.caption}>{currentStory.caption}</Text>
-            </BlurView>
-          </View>
-        )}
+        {/* Camadas de texto — renderiza JSON de layers ou texto simples */}
+        {currentStory.caption && uiVisible && (() => {
+          try {
+            const layers = JSON.parse(currentStory.caption);
+            if (Array.isArray(layers) && layers.length > 0) {
+              return (
+                <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
+                  {layers.map((layer: any, i: number) => (
+                    <View key={i} style={vw.textLayer}>
+                      <Text style={{
+                        color:      layer.color  || "#fff",
+                        fontSize:   layer.size   || 24,
+                        fontWeight: layer.bold   ? "800" : "400",
+                        fontStyle:  layer.italic ? "italic" : "normal",
+                        backgroundColor:   layer.highlight ? "rgba(0,0,0,0.65)" : "transparent",
+                        paddingHorizontal: layer.highlight ? 10 : 0,
+                        paddingVertical:   layer.highlight ? 4  : 0,
+                        borderRadius:      layer.highlight ? 8  : 0,
+                        textShadowColor:   layer.highlight ? "transparent" : "rgba(0,0,0,0.85)",
+                        textShadowOffset:  { width: 0, height: 1 },
+                        textShadowRadius:  layer.highlight ? 0 : 8,
+                        textAlign: "center",
+                      }}>{layer.text}</Text>
+                    </View>
+                  ))}
+                </View>
+              );
+            }
+          } catch {}
+          return (
+            <View style={vw.captionWrap} pointerEvents="none">
+              <BlurView intensity={40} tint="dark" style={vw.captionBlur}>
+                <Text style={vw.caption}>{currentStory.caption}</Text>
+              </BlurView>
+            </View>
+          );
+        })()}
 
         {/* Touch areas */}
         <View style={vw.touchRow} pointerEvents="box-none">
@@ -370,6 +399,7 @@ const vw = StyleSheet.create({
   caption:     { color: "#fff", fontSize: 15, lineHeight: 22 },
   touchRow:    { ...StyleSheet.absoluteFillObject, flexDirection: "row", top: 100, zIndex: 5 },
   headerBtn:   { width: 34, height: 34, borderRadius: 17, backgroundColor: "rgba(255,255,255,0.18)", alignItems: "center", justifyContent: "center" },
+  textLayer:   { position: "absolute", alignSelf: "center", top: "38%", zIndex: 8, paddingHorizontal: 16, alignItems: "center" },
 });
 
 // ─── Componente principal ─────────────────────────────────────────────────────

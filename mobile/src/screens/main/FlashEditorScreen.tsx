@@ -270,6 +270,7 @@ export default function FlashEditorScreen({ navigation }: any) {
   const [facing,   setFacing]   = useState<"front" | "back">("front");
   const [torchOn,  setTorchOn]  = useState(false);
   const [duration, setDuration] = useState(24);
+  const [mediaSource, setMediaSource] = useState<'camera'|'gallery'>('gallery');
   const cameraRef = useRef<CameraView>(null);
 
   const [textLayers,  setTextLayers]  = useState<TextLayer[]>([]);
@@ -378,7 +379,7 @@ export default function FlashEditorScreen({ navigation }: any) {
     if (!cameraRef.current) return;
     try {
       const photo = await cameraRef.current.takePictureAsync({ quality: 1 });
-      if (photo?.uri) { setMediaUri(photo.uri); setTorchOn(false); setMode("preview"); }
+      if (photo?.uri) { setMediaUri(photo.uri); setMediaSource('camera'); setTorchOn(false); setMode("preview"); }
     } catch {}
   };
 
@@ -391,7 +392,7 @@ export default function FlashEditorScreen({ navigation }: any) {
       let mediaUrl = "";
       if (mediaUri) {
         setUploadMsg("Comprimindo...");
-        mediaUrl = await postsService.uploadMedia(mediaUri, "stories", facing === "front");
+        mediaUrl = await postsService.uploadMedia(mediaUri, "stories", mediaSource === 'camera' && facing === 'front');
         setUploadMsg("Publicando...");
       }
       await api.post("/stories", { mediaUrl, caption, durationHours: duration });
