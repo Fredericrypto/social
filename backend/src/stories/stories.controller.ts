@@ -31,6 +31,12 @@ export class StoriesController {
     return this.storiesService.getMyStories(req.user.id);
   }
 
+  // Endpoint para ProfileScreen e UserProfileScreen
+  @Get("user/:username")
+  getByUsername(@Request() req, @Param("username") username: string) {
+    return this.storiesService.getStoriesByUsername(username, req.user.id);
+  }
+
   @Post(":id/view")
   view(@Request() req, @Param("id") id: string) {
     return this.storiesService.markViewed(id, req.user.id);

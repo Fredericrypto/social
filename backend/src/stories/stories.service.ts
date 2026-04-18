@@ -52,6 +52,32 @@ export class StoriesService {
     });
   }
 
+  // Retorna stories ativos de um usuário pelo username — usado no perfil
+  async getStoriesByUsername(username: string, viewerId: string): Promise<any> {
+    const stories = await this.storyRepo
+      .createQueryBuilder("story")
+      .where("story.expiresAt > :now", { now: new Date() })
+      .innerJoinAndSelect("story.user", "user")
+      .andWhere("user.username = :username", { username })
+      .orderBy("story.createdAt", "ASC")
+      .getMany();
+
+    if (!stories.length) return { stories: [], hasUnviewed: false };
+
+    const views = await this.viewRepo.find({ where: { viewerId } });
+    const viewedIds = new Set(views.map(v => v.storyId));
+
+    const mapped = stories.map(story => ({ ...story, viewed: viewedIds.has(story.id) }));
+    const hasUnviewed = mapped.some(s => !s.viewed);
+    const user = stories[0].user;
+
+    return {
+      user: { id: user.id, username: user.username, displayName: user.displayName, avatarUrl: user.avatarUrl },
+      stories: mapped,
+      hasUnviewed,
+    };
+  }
+
   async markViewed(storyId: string, viewerId: string): Promise<void> {
     const exists = await this.viewRepo.findOne({ where: { storyId, viewerId } });
     if (!exists) {
