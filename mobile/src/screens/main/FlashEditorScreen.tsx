@@ -103,7 +103,7 @@ type EditorMode = "select" | "camera" | "preview";
 
 // ─── Camada de texto com gestos completos ────────────────────────────────────
 function TextLayerView({
-  layer, isSelected, onSelect, onEdit, onMirror,
+  layer, isSelected, onSelect, onEdit, onMirror, onMove,
 }: {
   layer:     TextLayer;
   isSelected: boolean;
