@@ -204,7 +204,7 @@ export default function NewPostScreen({ navigation }: any) {
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaType.Images,
+      mediaTypes: 'images',
       allowsEditing: false,   // sem crop forçado
       quality: 0.9,
       allowsMultipleSelection: forProject,

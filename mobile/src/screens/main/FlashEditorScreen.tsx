@@ -351,7 +351,7 @@ export default function FlashEditorScreen({ navigation }: any) {
   const pickFromGallery = async () => {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes:    ImagePicker.MediaType.Images,
+        mediaTypes:    'images',
         allowsEditing: false,
         quality:       1,
       });
