@@ -305,7 +305,7 @@ export default function FlashEditorScreen({ navigation }: any) {
       let mediaUrl = "";
       if (mediaUri) {
         setUploadProgress("Enviando imagem...");
-        mediaUrl = await postsService.uploadMedia(mediaUri, "stories");
+        mediaUrl = await postsService.uploadMedia(mediaUri, "stories", facing === "front");
         setUploadProgress("Publicando...");
       }
       await api.post("/stories", { mediaUrl, caption, durationHours: duration });

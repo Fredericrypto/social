@@ -46,16 +46,16 @@ export const postsService = {
     return data;
   },
 
-  // ── Upload de mídia — agora direto para Supabase Storage ──────────────────
-  // Comprime com expo-image-manipulator → envia direto para Supabase → retorna publicUrl
+  // Upload direto para Supabase com compressão
+  // flipHorizontal: true quando foto veio da câmera frontal (corrige espelhamento Android)
   async uploadMedia(
-    localUri: string,
-    folder: UploadFolder,
+    localUri:       string,
+    folder:         UploadFolder,
+    flipHorizontal: boolean = false,
   ): Promise<string> {
-    return uploadImage(localUri, folder);
+    return uploadImage(localUri, folder, flipHorizontal);
   },
 
-  // Mantido para compatibilidade com MinIO local em dev
   async getUploadUrl(folder: UploadFolder, ext: string) {
     const { data } = await api.post('/media/upload-url', { folder, ext });
     return data;
