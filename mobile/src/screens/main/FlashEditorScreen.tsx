@@ -409,9 +409,10 @@ export default function FlashEditorScreen({ navigation }: any) {
         </BlurView>
       )}
 
-      {/* Input de texto */}
+      {/* Input de texto — Modal absoluto, não afeta o fundo */}
       {editingText && (
-        <KeyboardAvoidingView style={StyleSheet.absoluteFillObject} behavior={Platform.OS==="ios"?"padding":"height"} pointerEvents="box-none">
+        <Modal visible={editingText} transparent animationType="slide" statusBarTranslucent onRequestClose={() => { Keyboard.dismiss(); setEditingText(false); }}>
+          <KeyboardAvoidingView style={{ flex:1 }} behavior={Platform.OS==="ios"?"padding":"padding"}>
           <TouchableWithoutFeedback onPress={() => { Keyboard.dismiss(); setEditingText(false); }}>
             <View style={s.textBg}>
               <TouchableWithoutFeedback>
@@ -454,7 +455,8 @@ export default function FlashEditorScreen({ navigation }: any) {
               </TouchableWithoutFeedback>
             </View>
           </TouchableWithoutFeedback>
-        </KeyboardAvoidingView>
+          </KeyboardAvoidingView>
+        </Modal>
       )}
 
       {/* Modal de descarte next-gen */}
