@@ -1,4 +1,5 @@
 import { api } from './api';
+import { uploadImage, UploadFolder } from './supabase.service';
 
 export const postsService = {
   async create(caption: string, mediaUrls: string[] = [], mediaType = 'text', postType = 'text') {
@@ -45,37 +46,17 @@ export const postsService = {
     return data;
   },
 
-  // ── Upload de mídia ────────────────────────────────────────────────────────
-  // Envia o arquivo para o backend que faz upload direto no Supabase
+  // ── Upload de mídia — agora direto para Supabase Storage ──────────────────
+  // Comprime com expo-image-manipulator → envia direto para Supabase → retorna publicUrl
   async uploadMedia(
     localUri: string,
-    folder: 'avatars' | 'posts' | 'covers' | 'stories',
+    folder: UploadFolder,
   ): Promise<string> {
-    const uriParts  = localUri.split('.');
-    const ext       = uriParts[uriParts.length - 1].split('?')[0].toLowerCase() || 'jpg';
-    const safeExt   = ['jpg', 'jpeg', 'png', 'heic', 'webp'].includes(ext) ? ext : 'jpg';
-    const mimeType  = safeExt === 'jpg' || safeExt === 'jpeg' ? 'image/jpeg'
-                    : safeExt === 'png'  ? 'image/png'
-                    : safeExt === 'webp' ? 'image/webp'
-                    : 'image/jpeg';
-
-    const formData = new FormData();
-    formData.append('file', {
-      uri:  localUri,
-      name: `upload.${safeExt}`,
-      type: mimeType,
-    } as any);
-    formData.append('folder', folder);
-
-    const { data } = await api.post('/media/upload', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
-
-    return data.publicUrl;
+    return uploadImage(localUri, folder);
   },
 
   // Mantido para compatibilidade com MinIO local em dev
-  async getUploadUrl(folder: 'avatars' | 'posts' | 'covers' | 'stories', ext: string) {
+  async getUploadUrl(folder: UploadFolder, ext: string) {
     const { data } = await api.post('/media/upload-url', { folder, ext });
     return data;
   },
