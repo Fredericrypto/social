@@ -143,7 +143,7 @@ function TextLayerView({
 
   const tap = Gesture.Tap()
     .numberOfTaps(1)
-    .onEnd(() => { runOnJS(onEdit)(); });
+    .onEnd(() => { runOnJS(onSelect)(); });
 
   const doubleTap = Gesture.Tap()
     .numberOfTaps(2)
@@ -151,10 +151,18 @@ function TextLayerView({
     .onEnd(() => { runOnJS(onMirror)(); });
 
   // Pan + Pinch + Rotate simultâneos (igual Instagram)
-  // Pan+Pinch+Rotate simultâneos — tap abre edição, doubleTap espelha
-  const composed = Gesture.Race(
+  // Comportamento Instagram:
+  // - Pan+Pinch+Rotate sempre simultâneos
+  // - Tap simples: seleciona
+  // - Tap duplo: espelha
+  // - LongPress: edita
+  const longPress = Gesture.LongPress()
+    .minDuration(500)
+    .onStart(() => { runOnJS(onEdit)(); });
+
+  const composed = Gesture.Simultaneous(
     Gesture.Simultaneous(pan, Gesture.Simultaneous(pinch, rotate)),
-    Gesture.Exclusive(doubleTap, tap),
+    Gesture.Exclusive(doubleTap, Gesture.Exclusive(longPress, tap)),
   );
 
   const aStyle = useAnimatedStyle(() => ({
@@ -570,7 +578,7 @@ export default function FlashEditorScreen({ navigation }: any) {
 
       {/* ── Tap em área vazia — pressável sem bloquear bgPicker ── */}
       <TouchableOpacity
-        style={[StyleSheet.absoluteFillObject, { zIndex:1 }]}
+        style={[StyleSheet.absoluteFillObject, { zIndex:-1 }]}
         onPress={() => {
           if (selectedId) { setSelectedId(null); return; }
           openNewText();
@@ -653,7 +661,7 @@ export default function FlashEditorScreen({ navigation }: any) {
 
       {/* ── Seletor de fundo — só modo texto ── */}
       {!mediaUri && (
-        <View style={[s.bgPicker, { bottom: insets.bottom + 90, zIndex:50 }]} pointerEvents="box-none">
+        <View style={[s.bgPicker, { bottom: insets.bottom + 90, zIndex:50 }]}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap:8, paddingHorizontal:16 }}>
             {BACKGROUNDS.map((bg, idx) => (
               <TouchableOpacity
