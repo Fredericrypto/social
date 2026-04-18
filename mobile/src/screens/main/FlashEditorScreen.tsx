@@ -151,10 +151,10 @@ function TextLayerView({
     .minDuration(400)
     .onEnd(() => { runOnJS(onEdit)(); });
 
-  const composed = Gesture.Simultaneous(
-    Gesture.Simultaneous(pan, Gesture.Simultaneous(pinch, rotate)),
-    Gesture.Exclusive(doubleTap, Gesture.Exclusive(longPress, tap)),
-  );
+  // Pan sempre ativo, pinch e rotate em corrida (um por vez)
+  const transformGesture = Gesture.Simultaneous(pan, Gesture.Race(pinch, rotate));
+  const tapGesture = Gesture.Exclusive(doubleTap, Gesture.Exclusive(longPress, tap));
+  const composed = Gesture.Simultaneous(transformGesture, tapGesture);
 
   const aStyle = useAnimatedStyle(() => ({
     transform: [
@@ -643,17 +643,17 @@ export default function FlashEditorScreen({ navigation }: any) {
       {!mediaUri && (
         <View style={[s.bgPicker, { bottom: insets.bottom + 88 }]}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap:8, paddingHorizontal:16 }}>
-            {BACKGROUNDS.map((bg, i) => (
+            {BACKGROUNDS.map((bg, idx) => (
               <TouchableOpacity
-                key={i}
-                onPress={() => setBgIndex(i)}
+                key={idx}
+                onPress={() => setBgIndex(idx)}
                 activeOpacity={0.8}
-                style={[s.bgDot, bgIndex === i && s.bgDotOn]}
+                style={[s.bgDot, bgIndex === idx && s.bgDotOn]}
               >
                 {bg.type === "gradient" ? (
-                  <LinearGradient colors={bg.colors} style={s.bgDotInner} />
+                  <LinearGradient colors={(bg as any).colors} style={s.bgDotInner} />
                 ) : (
-                  <View style={[s.bgDotInner, { backgroundColor: bg.color }]} />
+                  <View style={[s.bgDotInner, { backgroundColor: (bg as any).color }]} />
                 )}
               </TouchableOpacity>
             ))}

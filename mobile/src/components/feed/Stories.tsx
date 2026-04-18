@@ -301,7 +301,7 @@ function StoryViewer({ allGroups, startIndex, onClose, onDeleteStory, onAddNew, 
         )}
 
         {/* Camadas de texto — renderiza JSON de layers ou texto simples */}
-        {currentStory.caption && uiVisible && (() => {
+        {currentStory.caption && (() => {
           try {
             const layers = JSON.parse(currentStory.caption);
             if (Array.isArray(layers) && layers.length > 0) {
