@@ -95,6 +95,8 @@ interface TextLayer {
   // posição inicial persistida
   initX:     number;
   initY:     number;
+  x:         number;
+  y:         number;
 }
 
 type EditorMode = "select" | "camera" | "preview";
@@ -108,6 +110,7 @@ function TextLayerView({
   onSelect:  () => void;
   onEdit:    () => void;
   onMirror:  () => void;
+  onMove?:   (x: number, y: number) => void;
 }) {
   const tx  = useSharedValue(layer.initX);
   const ty  = useSharedValue(layer.initY);
@@ -124,7 +127,7 @@ function TextLayerView({
       tx.value = stx.value + e.translationX;
       ty.value = sty.value + e.translationY;
     })
-    .onEnd(() => { stx.value = tx.value; sty.value = ty.value; });
+    .onEnd(() => { stx.value = tx.value; sty.value = ty.value; if (onMove) runOnJS(onMove)(tx.value, ty.value); });
 
   const pinch = Gesture.Pinch()
     .onStart(() => { ssc.value = sc.value; })
@@ -331,6 +334,8 @@ export default function FlashEditorScreen({ navigation }: any) {
         mirrored:  false,
         initX:     SW / 2 - 60,
         initY:     SH * 0.35,
+        x:         SW / 2 - 60,
+        y:         SH * 0.35,
       };
       setTextLayers(prev => [...prev, layer]);
       setSelectedId(layer.id);
@@ -393,6 +398,8 @@ export default function FlashEditorScreen({ navigation }: any) {
           bold:      l.bold,
           italic:    l.italic,
           highlight: l.highlight,
+          x:         l.x ?? l.initX,
+          y:         l.y ?? l.initY,
         })))
       : undefined;
     if (!mediaUri && !caption) { openNewText(); return; }
@@ -569,6 +576,7 @@ export default function FlashEditorScreen({ navigation }: any) {
           onSelect={() => setSelectedId(layer.id === selectedId ? null : layer.id)}
           onEdit={() => openEditText(layer)}
           onMirror={() => mirrorLayer(layer.id)}
+          onMove={(x, y) => setTextLayers(prev => prev.map(l => l.id === layer.id ? { ...l, x, y } : l))}
         />
       ))}
 
@@ -660,7 +668,7 @@ export default function FlashEditorScreen({ navigation }: any) {
           {DURATIONS.map(d => (
             <TouchableOpacity
               key={d.hours}
-              style={[s.durBarBtn, duration === d.hours && s.durBarBtnOn]}
+              style={[s.durBarBtn, duration === d.hours && { backgroundColor: theme.primary }]}
               onPress={() => setDuration(d.hours)}
               activeOpacity={0.8}
             >
@@ -705,7 +713,7 @@ export default function FlashEditorScreen({ navigation }: any) {
         <TouchableWithoutFeedback onPress={() => { Keyboard.dismiss(); setTextModal(false); }}>
           <View style={s.txtModalBg}>
             <TouchableWithoutFeedback>
-              <View style={s.txtSheet}>
+              <View style={[s.txtSheet, { backgroundColor: theme.surface }]}>
                 {/* Handle */}
                 <View style={s.handle} />
 
@@ -739,13 +747,13 @@ export default function FlashEditorScreen({ navigation }: any) {
 
                 {/* Estilos */}
                 <View style={s.styleRow}>
-                  <TouchableOpacity style={[s.styleBtn, editBold && s.styleBtnOn]} onPress={() => setEditBold(b => !b)} activeOpacity={0.8}>
+                  <TouchableOpacity style={[s.styleBtn, { backgroundColor: theme.surfaceHigh }, editBold && { backgroundColor: theme.primary }]} onPress={() => setEditBold(b => !b)} activeOpacity={0.8}>
                     <Text style={[{ color: "#fff", fontWeight: "800", fontSize: 14 }]}>B</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={[s.styleBtn, editItalic && s.styleBtnOn]} onPress={() => setEditItalic(i => !i)} activeOpacity={0.8}>
+                  <TouchableOpacity style={[s.styleBtn, { backgroundColor: theme.surfaceHigh }, editItalic && { backgroundColor: theme.primary }]} onPress={() => setEditItalic(i => !i)} activeOpacity={0.8}>
                     <Text style={[{ color: "#fff", fontStyle: "italic", fontSize: 14 }]}>I</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={[s.styleBtn, editHL && s.styleBtnOn]} onPress={() => setEditHL(h => !h)} activeOpacity={0.8}>
+                  <TouchableOpacity style={[s.styleBtn, { backgroundColor: theme.surfaceHigh }, editHL && { backgroundColor: theme.primary }]} onPress={() => setEditHL(h => !h)} activeOpacity={0.8}>
                     <Ionicons name="square" size={13} color="#fff" />
                   </TouchableOpacity>
 
@@ -781,10 +789,10 @@ export default function FlashEditorScreen({ navigation }: any) {
 
                 {/* Botões de ação */}
                 <View style={s.txtActions}>
-                  <TouchableOpacity style={s.cancelBtn} onPress={() => { Keyboard.dismiss(); setTextModal(false); }} activeOpacity={0.8}>
-                    <Text style={s.cancelTxt}>Cancelar</Text>
+                  <TouchableOpacity style={[s.cancelBtn, { backgroundColor: theme.surfaceHigh, borderColor: theme.border }]} onPress={() => { Keyboard.dismiss(); setTextModal(false); }} activeOpacity={0.8}>
+                    <Text style={[s.cancelTxt, { color: theme.textSecondary }]}>Cancelar</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={s.confirmBtn} onPress={commitText} activeOpacity={0.85}>
+                  <TouchableOpacity style={[s.confirmBtn, { backgroundColor: theme.primary }]} onPress={commitText} activeOpacity={0.85}>
                     <Text style={s.confirmTxt}>
                       {editingLayer ? "Salvar" : "Adicionar"}
                     </Text>
@@ -899,7 +907,7 @@ const s = StyleSheet.create({
   botBar:   { position:"absolute", bottom:0, left:0, right:0, flexDirection:"row", justifyContent:"space-between", alignItems:"center", paddingHorizontal:16, paddingTop:12, zIndex:10 },
   durBar:   { flexDirection:"row", borderRadius:22, overflow:"hidden", padding:3, gap:1 },
   durBarBtn:   { paddingHorizontal:11, paddingVertical:6, borderRadius:18 },
-  durBarBtnOn: { backgroundColor:"rgba(124,58,237,0.7)" },
+  durBarBtnOn: {},
   durBarTxt:   { color:"rgba(255,255,255,0.4)", fontSize:11, fontWeight:"600" },
   durBarTxtOn: { color:"#fff", fontWeight:"800" },
   pubBtn:   { flexDirection:"row", alignItems:"center", gap:8, paddingHorizontal:22, paddingVertical:12, borderRadius:26, elevation:4 },
@@ -911,7 +919,7 @@ const s = StyleSheet.create({
 
   // Modal texto
   txtModalBg: { flex:1, justifyContent:"flex-end", backgroundColor:"rgba(0,0,0,0.5)" },
-  txtSheet:   { backgroundColor:"rgba(10,10,16,0.97)", borderTopLeftRadius:28, borderTopRightRadius:28, paddingHorizontal:20, paddingTop:12, paddingBottom:32, gap:14 },
+  txtSheet:   { borderTopLeftRadius:28, borderTopRightRadius:28, paddingHorizontal:20, paddingTop:12, paddingBottom:32, gap:14 },
   handle:     { width:40, height:4, borderRadius:2, backgroundColor:"rgba(255,255,255,0.15)", alignSelf:"center", marginBottom:4 },
   colorRow:   { gap:8, paddingVertical:4 },
   colorDot:   { width:30, height:30, borderRadius:15 },

@@ -164,7 +164,7 @@ function MainStack() {
       <Stack.Screen name="Settings"      component={SettingsScreen}      options={{ gestureEnabled: true }} />
       <Stack.Screen name="FollowersList" component={FollowersListScreen} options={{ gestureEnabled: true }} />
       <Stack.Screen name="UserProfile"   component={UserProfileScreen}   options={{ gestureEnabled: true }} />
-      <Stack.Screen name="FlashEditor"   component={FlashEditorScreen}   options={{ gestureEnabled: true, presentation: "fullScreenModal", headerShown: false, navigationBarHidden: true }} />
+      <Stack.Screen name="FlashEditor"   component={FlashEditorScreen}   options={{ gestureEnabled: false, presentation: "fullScreenModal", headerShown: false, navigationBarHidden: true }} />
     </Stack.Navigator>
   );
 }

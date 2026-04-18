@@ -308,7 +308,7 @@ function StoryViewer({ allGroups, startIndex, onClose, onDeleteStory, onAddNew, 
               return (
                 <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
                   {layers.map((layer: any, i: number) => (
-                    <View key={i} style={vw.textLayer}>
+                    <View key={i} style={[vw.textLayerBase, layer.x != null ? { left: layer.x, top: layer.y } : { alignSelf:"center", top:"38%" }]}>
                       <Text style={{
                         color:      layer.color  || "#fff",
                         fontSize:   layer.size   || 24,
@@ -399,7 +399,7 @@ const vw = StyleSheet.create({
   caption:     { color: "#fff", fontSize: 15, lineHeight: 22 },
   touchRow:    { ...StyleSheet.absoluteFillObject, flexDirection: "row", top: 100, zIndex: 5 },
   headerBtn:   { width: 34, height: 34, borderRadius: 17, backgroundColor: "rgba(255,255,255,0.18)", alignItems: "center", justifyContent: "center" },
-  textLayer:   { position: "absolute", alignSelf: "center", top: "38%", zIndex: 8, paddingHorizontal: 16, alignItems: "center" },
+  textLayerBase: { position: "absolute", zIndex: 8 },
 });
 
 // ─── Componente principal ─────────────────────────────────────────────────────
