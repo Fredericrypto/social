@@ -349,18 +349,18 @@ export default function FlashEditorScreen({ navigation }: any) {
 
   // ── Galeria ──────────────────────────────────────────────────────────────
   const pickFromGallery = async () => {
-    if (!mediaPermission?.granted) {
-      const { granted } = await requestMediaPermission();
-      if (!granted) { return; }
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes:    ImagePicker.MediaType.Images,
-      allowsEditing: false,
-      quality:       1,
-    });
-    if (!result.canceled && result.assets[0]?.uri) {
-      setMediaUri(result.assets[0].uri);
-      setMode("preview");
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes:    ImagePicker.MediaType.Images,
+        allowsEditing: false,
+        quality:       1,
+      });
+      if (!result.canceled && result.assets[0]?.uri) {
+        setMediaUri(result.assets[0].uri);
+        setMode("preview");
+      }
+    } catch (e) {
+      console.log("Gallery error:", e);
     }
   };
 
@@ -540,17 +540,17 @@ export default function FlashEditorScreen({ navigation }: any) {
         <View style={[StyleSheet.absoluteFillObject, { backgroundColor: currentBg.color }]} />
       )}
 
-      {/* ── Tap em área vazia → novo texto ── */}
+      {/* ── Tap em área vazia — ABAIXO das camadas (zIndex:1) ── */}
       <TouchableWithoutFeedback
         onPress={() => {
           if (selectedId) { setSelectedId(null); return; }
           openNewText();
         }}
       >
-        <View style={StyleSheet.absoluteFillObject} />
+        <View style={[StyleSheet.absoluteFillObject, { zIndex:1 }]} />
       </TouchableWithoutFeedback>
 
-      {/* ── Camadas de texto ── */}
+      {/* ── Camadas de texto — ACIMA do tap handler (zIndex:20) ── */}
       {textLayers.map(layer => (
         <TextLayerView
           key={layer.id}
@@ -855,8 +855,8 @@ const s = StyleSheet.create({
   shutterInner:{ width:66, height:66, borderRadius:33, backgroundColor:"#fff" },
 
   // Editor
-  mediaBg:  { ...StyleSheet.absoluteFillObject, backgroundColor:"#000" },
-  mediaImg: { width:"100%", height:"100%" },
+  mediaBg:  { ...StyleSheet.absoluteFillObject, backgroundColor:"#000", flex:1 },
+  mediaImg: { flex:1, width:"100%", height:"100%" },
   tapHint:  { position:"absolute", top:"48%", alignSelf:"center", flexDirection:"row", alignItems:"center", gap:8, zIndex:3, pointerEvents:"none" as any },
   tapHintTxt:{ color:"rgba(255,255,255,0.35)", fontSize:14, fontWeight:"500" },
   topBar:   { position:"absolute", top:0, left:0, right:0, flexDirection:"row", justifyContent:"space-between", alignItems:"center", paddingHorizontal:16, zIndex:10 },
