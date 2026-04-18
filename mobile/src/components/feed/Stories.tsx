@@ -67,7 +67,11 @@ function StoryViewer({ group, allGroups, startIndex, onClose }: any) {
     <Modal visible animationType="fade" statusBarTranslucent>
       <View style={viewerStyles.root}>
         <StatusBar hidden />
-        <Image source={{ uri: currentStory.mediaUrl }} style={viewerStyles.bg} resizeMode="cover" />
+        {currentStory.mediaUrl ? (
+          <Image source={{ uri: currentStory.mediaUrl }} style={viewerStyles.bg} resizeMode="cover" />
+        ) : (
+          <LinearGradient colors={["#7C3AED", "#06B6D4"]} style={viewerStyles.bg} />
+        )}
         <LinearGradient
           colors={["rgba(0,0,0,0.5)", "transparent", "rgba(0,0,0,0.3)"]}
           style={StyleSheet.absoluteFillObject}
