@@ -385,7 +385,16 @@ export default function FlashEditorScreen({ navigation }: any) {
 
   // ── Publicar ─────────────────────────────────────────────────────────────
   const handlePublish = async () => {
-    const caption = textLayers.map(l => l.text).join(" · ") || undefined;
+    const caption = textLayers.length > 0
+      ? JSON.stringify(textLayers.map(l => ({
+          text:      l.text,
+          color:     l.color,
+          size:      l.size,
+          bold:      l.bold,
+          italic:    l.italic,
+          highlight: l.highlight,
+        })))
+      : undefined;
     if (!mediaUri && !caption) { openNewText(); return; }
     setUploading(true);
     try {
@@ -894,7 +903,7 @@ const s = StyleSheet.create({
   durBarTxt:   { color:"rgba(255,255,255,0.4)", fontSize:11, fontWeight:"600" },
   durBarTxtOn: { color:"#fff", fontWeight:"800" },
   pubBtn:   { flexDirection:"row", alignItems:"center", gap:8, paddingHorizontal:22, paddingVertical:12, borderRadius:26, elevation:4 },
-  bgPicker:  { position:"absolute", left:0, right:0, zIndex:10 },
+  bgPicker:  { position:"absolute", left:0, right:0, zIndex:15, height:52 },
   bgDot:     { width:32, height:32, borderRadius:16, borderWidth:2, borderColor:"transparent", padding:2 },
   bgDotOn:   { borderColor:"rgba(255,255,255,0.8)" },
   bgDotInner:{ flex:1, borderRadius:14 },
