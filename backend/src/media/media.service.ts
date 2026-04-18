@@ -11,7 +11,6 @@ export class MediaService implements OnModuleInit {
   private bucket: string;
   private useSupabase: boolean;
 
-  // Supabase
   private supabaseProjectUrl: string;
   private supabaseServiceKey: string;
   private supabaseBucket: string;
@@ -79,17 +78,16 @@ export class MediaService implements OnModuleInit {
   }
 
   private async getSupabaseUploadUrl(key: string) {
-    // Supabase Storage — presigned upload URL
-    // POST /storage/v1/object/sign/upload/{bucket}/{key}
-    // IMPORTANTE: sem body, sem Content-Type (FastifyError se enviar body vazio com content-type json)
+    // Supabase exige POST com body JSON {} e Content-Type application/json
     const url = `${this.supabaseProjectUrl}/storage/v1/object/sign/upload/${this.supabaseBucket}/${key}`;
 
     const response = await fetch(url, {
-      method: 'POST',
+      method:  'POST',
       headers: {
         'Authorization': `Bearer ${this.supabaseServiceKey}`,
-        // SEM Content-Type — o endpoint não aceita body
+        'Content-Type':  'application/json',
       },
+      body: JSON.stringify({}), // body vazio mas obrigatório
     });
 
     if (!response.ok) {
@@ -101,10 +99,9 @@ export class MediaService implements OnModuleInit {
     const data = await response.json();
     console.log('Supabase presign response:', JSON.stringify(data));
 
-    // Supabase retorna { signedURL: '/storage/v1/object/sign/upload/...' }
     const signedPath = data.signedURL || data.url || data.signed_url || data.signedUrl;
     if (!signedPath) {
-      console.error('Supabase response inesperado:', data);
+      console.error('Supabase resposta inesperada:', data);
       throw new Error('Supabase não retornou signedURL');
     }
 
@@ -114,7 +111,7 @@ export class MediaService implements OnModuleInit {
 
     const publicUrl = `${this.supabaseProjectUrl}/storage/v1/object/public/${this.supabaseBucket}/${key}`;
 
-    console.log('✅ Supabase presigned URL OK');
+    console.log('✅ Supabase presigned URL OK:', publicUrl.substring(0, 60));
     return { uploadUrl, publicUrl, key };
   }
 
