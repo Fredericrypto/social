@@ -143,21 +143,18 @@ function TextLayerView({
 
   const tap = Gesture.Tap()
     .numberOfTaps(1)
-    .onEnd(() => { runOnJS(onSelect)(); });
+    .onEnd(() => { runOnJS(onEdit)(); });
 
   const doubleTap = Gesture.Tap()
     .numberOfTaps(2)
+    .maxDuration(300)
     .onEnd(() => { runOnJS(onMirror)(); });
 
-  const longPress = Gesture.LongPress()
-    .minDuration(400)
-    .onEnd(() => { runOnJS(onEdit)(); });
-
   // Pan + Pinch + Rotate simultâneos (igual Instagram)
-  const composed = Gesture.Simultaneous(
-    pan,
-    Gesture.Simultaneous(pinch, rotate),
-    Gesture.Exclusive(doubleTap, Gesture.Exclusive(longPress, tap)),
+  // Pan+Pinch+Rotate simultâneos — tap abre edição, doubleTap espelha
+  const composed = Gesture.Race(
+    Gesture.Simultaneous(pan, Gesture.Simultaneous(pinch, rotate)),
+    Gesture.Exclusive(doubleTap, tap),
   );
 
   const aStyle = useAnimatedStyle(() => ({
@@ -415,6 +412,7 @@ export default function FlashEditorScreen({ navigation }: any) {
     const caption = (textLayers.length > 0 || !mediaUri)
       ? JSON.stringify(flashData)
       : undefined;
+    console.log('FLASH CAPTION:', caption?.substring(0, 200));
     if (!mediaUri && !caption) { openNewText(); return; }
     setUploading(true);
     try {
@@ -570,9 +568,9 @@ export default function FlashEditorScreen({ navigation }: any) {
         <View style={[StyleSheet.absoluteFillObject, { backgroundColor: currentBg.color }]} />
       )}
 
-      {/* ── Tap em área vazia — usa TouchableOpacity sem feedback visual ── */}
+      {/* ── Tap em área vazia — pressável sem bloquear bgPicker ── */}
       <TouchableOpacity
-        style={[StyleSheet.absoluteFillObject, { zIndex:0 }]}
+        style={[StyleSheet.absoluteFillObject, { zIndex:1 }]}
         onPress={() => {
           if (selectedId) { setSelectedId(null); return; }
           openNewText();
@@ -655,7 +653,7 @@ export default function FlashEditorScreen({ navigation }: any) {
 
       {/* ── Seletor de fundo — só modo texto ── */}
       {!mediaUri && (
-        <View style={[s.bgPicker, { bottom: insets.bottom + 90, zIndex:50 }]}>
+        <View style={[s.bgPicker, { bottom: insets.bottom + 90, zIndex:50 }]} pointerEvents="box-none">
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap:8, paddingHorizontal:16 }}>
             {BACKGROUNDS.map((bg, idx) => (
               <TouchableOpacity
