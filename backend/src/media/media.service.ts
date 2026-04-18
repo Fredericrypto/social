@@ -10,29 +10,41 @@ export class MediaService implements OnModuleInit {
   private client: Minio.Client;
   private bucket: string;
   private publicBaseUrl: string;
-  private useR2: boolean;
+  private useSupabase: boolean;
 
   constructor(private readonly config: ConfigService) {
-    const r2AccountId = config.get<string>('R2_ACCOUNT_ID');
+    const supabaseEndpoint = config.get<string>('SUPABASE_S3_ENDPOINT');
 
-    // Usa R2 apenas se R2_ACCOUNT_ID estiver explicitamente configurado
-    this.useR2 = !!r2AccountId;
-    this.bucket = this.useR2
-      ? (config.get('R2_BUCKET') || 'minha-rede')
-      : (config.get('MINIO_BUCKET') || 'minha-rede');
+    // Usa Supabase S3 se a variável estiver configurada
+    this.useSupabase = !!supabaseEndpoint;
 
-    if (this.useR2) {
+    if (this.useSupabase) {
+      // Supabase S3 — endpoint no formato https://xxx.storage.supabase.co/storage/v1/s3
+      const endpointUrl = new URL(supabaseEndpoint!);
+      this.bucket = config.get('SUPABASE_S3_BUCKET') || 'minha-rede';
+
       this.client = new Minio.Client({
-        endPoint: `${r2AccountId}.r2.cloudflarestorage.com`,
-        useSSL: true,
-        accessKey: config.get('R2_ACCESS_KEY_ID') || '',
-        secretKey: config.get('R2_SECRET_ACCESS_KEY') || '',
+        endPoint:  endpointUrl.hostname,
+        port:      443,
+        useSSL:    true,
+        pathStyle: true,
+        accessKey: config.get('SUPABASE_S3_ACCESS_KEY') || '',
+        secretKey: config.get('SUPABASE_S3_SECRET_KEY') || '',
+        region:    config.get('SUPABASE_S3_REGION') || 'us-east-1',
       });
-      this.publicBaseUrl = config.get('R2_PUBLIC_URL') || '';
-      console.log('☁️  Storage: Cloudflare R2');
+
+      // URL pública do Supabase Storage
+      // formato: https://[project].supabase.co/storage/v1/object/public/[bucket]/[key]
+      const projectId = endpointUrl.hostname.split('.')[0];
+      this.publicBaseUrl = `https://${projectId}.supabase.co/storage/v1/object/public/${this.bucket}`;
+
+      console.log('☁️  Storage: Supabase S3');
     } else {
+      // MinIO local para desenvolvimento
       const endpoint = config.get('MINIO_ENDPOINT') || 'localhost';
       const port     = parseInt(config.get('MINIO_PORT') || '9000');
+      this.bucket    = config.get('MINIO_BUCKET') || 'minha-rede';
+
       this.client = new Minio.Client({
         endPoint:  endpoint,
         port,
@@ -40,13 +52,14 @@ export class MediaService implements OnModuleInit {
         accessKey: config.get('MINIO_ACCESS_KEY') || 'minioadmin',
         secretKey: config.get('MINIO_SECRET_KEY') || 'minioadmin',
       });
+
       this.publicBaseUrl = `http://${endpoint}:${port}/${this.bucket}`;
       console.log(`🗄️  Storage: MinIO (${endpoint}:${port})`);
     }
   }
 
   async onModuleInit() {
-    if (this.useR2) return; // R2 — bucket gerenciado no dashboard Cloudflare
+    if (this.useSupabase) return; // Supabase — bucket gerenciado no dashboard
     try {
       const exists = await this.client.bucketExists(this.bucket);
       if (!exists) {
@@ -69,7 +82,17 @@ export class MediaService implements OnModuleInit {
   }
 
   async getUploadUrl(folder: UploadFolder, ext: string) {
-    const key       = `${folder}/${uuidv4()}.${ext}`;
+    const key = `${folder}/${uuidv4()}.${ext}`;
+
+    if (this.useSupabase) {
+      // Supabase S3 — presigned PUT via MinIO SDK com path completo
+      const supabaseEndpoint = this.config.get<string>('SUPABASE_S3_ENDPOINT')!;
+      const fullPath = `${this.bucket}/${key}`;
+      const uploadUrl = await this.client.presignedPutObject(this.bucket, key, 60 * 5);
+      const publicUrl = `${this.publicBaseUrl}/${key}`;
+      return { uploadUrl, publicUrl, key };
+    }
+
     const uploadUrl = await this.client.presignedPutObject(this.bucket, key, 60 * 5);
     const publicUrl = `${this.publicBaseUrl}/${key}`;
     return { uploadUrl, publicUrl, key };
