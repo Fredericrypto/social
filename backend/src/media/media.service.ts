@@ -2,6 +2,7 @@ import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as Minio from 'minio';
 import { v4 as uuidv4 } from 'uuid';
+import axios from 'axios';
 
 type UploadFolder = 'avatars' | 'posts' | 'covers' | 'stories';
 
@@ -69,8 +70,6 @@ export class MediaService implements OnModuleInit {
     const key = `${folder}/${uuidv4()}.${ext}`;
 
     if (this.useSupabase) {
-      // Em produção, não usamos presigned URL — usamos uploadFile() direto
-      // Retorna key para o controller saber qual path usar
       const publicUrl = `${this.supabaseProjectUrl}/storage/v1/object/public/${this.supabaseBucket}/${key}`;
       return { uploadUrl: '', publicUrl, key };
     }
@@ -84,24 +83,16 @@ export class MediaService implements OnModuleInit {
     if (this.useSupabase) {
       const url = `${this.supabaseProjectUrl}/storage/v1/object/${this.supabaseBucket}/${key}`;
 
-      // Converte Buffer para Uint8Array — compatível com fetch BodyInit
-      const uint8 = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
-
-      const response = await fetch(url, {
-        method:  'POST',
+      // Usa axios que aceita Buffer nativamente sem problemas de tipagem
+      await axios.post(url, buffer, {
         headers: {
           'Authorization': `Bearer ${this.supabaseServiceKey}`,
           'Content-Type':  mimeType,
           'x-upsert':      'true',
         },
-        body: uint8,
+        maxBodyLength: Infinity,
+        maxContentLength: Infinity,
       });
-
-      if (!response.ok) {
-        const err = await response.text();
-        console.error('Supabase upload error:', response.status, err);
-        throw new Error(`Supabase upload error: ${response.status}`);
-      }
 
       const publicUrl = `${this.supabaseProjectUrl}/storage/v1/object/public/${this.supabaseBucket}/${key}`;
       console.log('✅ Supabase upload OK:', publicUrl.substring(0, 70));
@@ -116,9 +107,9 @@ export class MediaService implements OnModuleInit {
   async deleteFile(key: string): Promise<void> {
     if (this.useSupabase) {
       try {
-        await fetch(
+        await axios.delete(
           `${this.supabaseProjectUrl}/storage/v1/object/${this.supabaseBucket}/${key}`,
-          { method: 'DELETE', headers: { 'Authorization': `Bearer ${this.supabaseServiceKey}` } },
+          { headers: { 'Authorization': `Bearer ${this.supabaseServiceKey}` } },
         );
       } catch {}
       return;
