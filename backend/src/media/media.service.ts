@@ -11,7 +11,7 @@ export class MediaService implements OnModuleInit {
   private bucket: string;
   private useSupabase: boolean;
 
-  // Supabase específico
+  // Supabase
   private supabaseProjectUrl: string;
   private supabaseServiceKey: string;
   private supabaseBucket: string;
@@ -21,17 +21,14 @@ export class MediaService implements OnModuleInit {
     this.useSupabase = !!supabaseEndpoint;
 
     if (this.useSupabase) {
-      // Extrai project ID do endpoint
-      // ex: https://cyifplgljtWmnfrxrrsn.storage.supabase.co/storage/v1/s3
-      const endpointUrl  = new URL(supabaseEndpoint!);
-      const projectId    = endpointUrl.hostname.split('.')[0];
+      const endpointUrl       = new URL(supabaseEndpoint!);
+      const projectId         = endpointUrl.hostname.split('.')[0];
       this.supabaseProjectUrl = `https://${projectId}.supabase.co`;
       this.supabaseServiceKey = config.get('SUPABASE_SERVICE_KEY') || '';
       this.supabaseBucket     = config.get('SUPABASE_S3_BUCKET') || 'minha-rede';
       this.bucket             = this.supabaseBucket;
       console.log(`☁️  Storage: Supabase (${this.supabaseProjectUrl})`);
     } else {
-      // MinIO local
       const endpoint  = config.get('MINIO_ENDPOINT') || 'localhost';
       const port      = parseInt(config.get('MINIO_PORT') || '9000');
       this.bucket     = config.get('MINIO_BUCKET') || 'minha-rede';
@@ -76,23 +73,22 @@ export class MediaService implements OnModuleInit {
       return this.getSupabaseUploadUrl(key);
     }
 
-    // MinIO local — presigned PUT
     const uploadUrl = await this.minioClient.presignedPutObject(this.bucket, key, 60 * 5);
     const publicUrl = `http://${this.config.get('MINIO_ENDPOINT') || 'localhost'}:${this.config.get('MINIO_PORT') || '9000'}/${this.bucket}/${key}`;
     return { uploadUrl, publicUrl, key };
   }
 
   private async getSupabaseUploadUrl(key: string) {
-    // Supabase Storage API — gera presigned upload URL via REST
-    // POST /storage/v1/object/sign/upload/{bucketName}/{objectPath}
+    // Supabase Storage — presigned upload URL
+    // POST /storage/v1/object/sign/upload/{bucket}/{key}
+    // IMPORTANTE: sem body, sem Content-Type (FastifyError se enviar body vazio com content-type json)
     const url = `${this.supabaseProjectUrl}/storage/v1/object/sign/upload/${this.supabaseBucket}/${key}`;
 
     const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${this.supabaseServiceKey}`,
-        'Content-Type':  'application/json',
-        'x-upsert':      'true',
+        // SEM Content-Type — o endpoint não aceita body
       },
     });
 
@@ -103,19 +99,22 @@ export class MediaService implements OnModuleInit {
     }
 
     const data = await response.json();
+    console.log('Supabase presign response:', JSON.stringify(data));
 
-    // Supabase retorna { signedURL: '/storage/v1/object/sign/...' }
-    // O uploadUrl para PUT é o endpoint completo
-    const signedPath = data.signedURL || data.url || data.signed_url;
-    const uploadUrl  = signedPath.startsWith('http')
+    // Supabase retorna { signedURL: '/storage/v1/object/sign/upload/...' }
+    const signedPath = data.signedURL || data.url || data.signed_url || data.signedUrl;
+    if (!signedPath) {
+      console.error('Supabase response inesperado:', data);
+      throw new Error('Supabase não retornou signedURL');
+    }
+
+    const uploadUrl = signedPath.startsWith('http')
       ? signedPath
       : `${this.supabaseProjectUrl}${signedPath}`;
 
-    // URL pública para acesso após upload
     const publicUrl = `${this.supabaseProjectUrl}/storage/v1/object/public/${this.supabaseBucket}/${key}`;
 
-    console.log('✅ Supabase presigned URL gerada:', { uploadUrl: uploadUrl.substring(0, 80), publicUrl });
-
+    console.log('✅ Supabase presigned URL OK');
     return { uploadUrl, publicUrl, key };
   }
 
@@ -124,10 +123,7 @@ export class MediaService implements OnModuleInit {
       try {
         await fetch(
           `${this.supabaseProjectUrl}/storage/v1/object/${this.supabaseBucket}/${key}`,
-          {
-            method:  'DELETE',
-            headers: { 'Authorization': `Bearer ${this.supabaseServiceKey}` },
-          }
+          { method: 'DELETE', headers: { 'Authorization': `Bearer ${this.supabaseServiceKey}` } }
         );
       } catch {}
       return;
