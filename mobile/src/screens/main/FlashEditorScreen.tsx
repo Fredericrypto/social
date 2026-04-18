@@ -937,6 +937,6 @@ const s = StyleSheet.create({
   txtActions: { flexDirection:"row", gap:10, marginTop:4 },
   cancelBtn:  { flex:1, paddingVertical:13, borderRadius:16, backgroundColor:"rgba(255,255,255,0.07)", alignItems:"center", borderWidth:StyleSheet.hairlineWidth, borderColor:"rgba(255,255,255,0.08)" },
   cancelTxt:  { color:"rgba(255,255,255,0.5)", fontSize:14, fontWeight:"600" },
-  confirmBtn: { flex:2, flexDirection:"row", gap:6, paddingVertical:13, borderRadius:16, backgroundColor:"#7C3AED", alignItems:"center", justifyContent:"center", elevation:3 },
+  confirmBtn: { flex:2, flexDirection:"row", gap:6, paddingVertical:13, borderRadius:16, alignItems:"center", justifyContent:"center", elevation:3 },
   confirmTxt: { color:"#fff", fontSize:14, fontWeight:"700" },
 });
