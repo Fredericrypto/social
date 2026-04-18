@@ -110,8 +110,8 @@ function FlashActionModal({ visible, onClose, onView, onNew, isDark }: {
 }
 
 const am = StyleSheet.create({
-  backdrop:    { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "flex-end", paddingHorizontal: 12, paddingBottom: 32 },
-  sheet:       { borderRadius: 22, overflow: "hidden" },
+  backdrop:    { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "center", paddingHorizontal: 24 },
+  sheet:       { borderRadius: 22, overflow: "hidden", backgroundColor: "rgba(10,10,15,0.85)" },
   blur:        { paddingBottom: 4 },
   header:      { alignItems: "center", paddingVertical: 20, paddingHorizontal: 20, gap: 6 },
   flashIcon:   { width: 48, height: 48, borderRadius: 24, backgroundColor: "rgba(124,58,237,0.15)", alignItems: "center", justifyContent: "center", marginBottom: 4 },
@@ -421,12 +421,16 @@ export default function Stories({ navigation, refreshKey = 0 }: StoriesProps) {
         {/* Meu story */}
         <TouchableOpacity style={styles.item} onPress={handleMyStoryPress} activeOpacity={0.8}>
           {myGroup ? (
-            // Ring gradiente mais grosso (padding: 4)
-            <LinearGradient colors={["#7C3AED", "#06B6D4"]} style={styles.ring} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
-              <View style={[styles.ringInner, { backgroundColor: theme.background }]}>
-                <Avatar uri={user?.avatarUrl} name={user?.displayName || user?.username} size={50} />
+            <View style={{ position:"relative" }}>
+              <LinearGradient colors={["#7C3AED", "#06B6D4"]} style={styles.ring} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
+                <View style={[styles.ringInner, { backgroundColor: theme.background }]}>
+                  <Avatar uri={user?.avatarUrl} name={user?.displayName || user?.username} size={54} />
+                </View>
+              </LinearGradient>
+              <View style={[styles.addBtn, { backgroundColor: theme.primary }]}>
+                <Ionicons name="add" size={12} color="#fff" />
               </View>
-            </LinearGradient>
+            </View>
           ) : (
             <View style={styles.myRing}>
               <Avatar uri={user?.avatarUrl} name={user?.displayName || user?.username} size={56} />
@@ -497,9 +501,9 @@ const styles = StyleSheet.create({
   container:  { paddingHorizontal: 12, paddingVertical: 10, gap: 14 },
   item:       { alignItems: "center", gap: 5, width: 72 },
   myRing:     { width: 68, height: 68, borderRadius: 34, position: "relative", alignItems: "center", justifyContent: "center" },
-  addBtn:     { position: "absolute", bottom: 0, right: 0, width: 22, height: 22, borderRadius: 11, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "transparent" },
-  ring:       { width: 68, height: 68, borderRadius: 34, padding: 4, alignItems: "center", justifyContent: "center" },
-  ringInner:  { width: 60, height: 60, borderRadius: 30, padding: 2, alignItems: "center", justifyContent: "center" },
-  ringViewed: { width: 68, height: 68, borderRadius: 34, borderWidth: 2.5, alignItems: "center", justifyContent: "center" },
+  addBtn:     { position: "absolute", bottom: 0, right: 0, width: 22, height: 22, borderRadius: 11, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "rgba(255,255,255,0.6)" },
+  ring:       { width: 64, height: 64, borderRadius: 32, padding: 3, alignItems: "center", justifyContent: "center" },
+  ringInner:  { width: 58, height: 58, borderRadius: 29, padding: 0, alignItems: "center", justifyContent: "center" },
+  ringViewed: { width: 64, height: 64, borderRadius: 32, borderWidth: 2.5, alignItems: "center", justifyContent: "center" },
   name:       { fontSize: 11, textAlign: "center" },
 });

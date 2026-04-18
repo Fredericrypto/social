@@ -8,7 +8,7 @@ import {
   View, Text, StyleSheet, TouchableOpacity, TextInput,
   Dimensions, StatusBar, Alert, ActivityIndicator,
   KeyboardAvoidingView, Platform, TouchableWithoutFeedback,
-  Keyboard, ScrollView,
+  Keyboard, ScrollView, Modal, BackHandler,
 } from "react-native";
 import { Image } from "react-native";
 import * as ImagePicker from "expo-image-picker";
@@ -170,6 +170,7 @@ export default function FlashEditorScreen({ navigation }: any) {
   const [editBold,      setEditBold]      = useState(false);
   const [editHighlight, setEditHighlight] = useState(false);
   const [uploading,     setUploading]     = useState(false);
+  const [discardModal,  setDiscardModal]  = useState(false);
   const [uploadMsg,     setUploadMsg]     = useState("");
 
   const selectedLayer = textLayers.find(l => l.id === selectedId);
@@ -264,10 +265,7 @@ export default function FlashEditorScreen({ navigation }: any) {
 
   const confirmDiscard = () => {
     if (mediaUri || textLayers.length > 0) {
-      Alert.alert("Descartar Flash?", "Todo o progresso será perdido.", [
-        { text: "Continuar editando", style:"cancel" },
-        { text: "Descartar", style:"destructive", onPress: resetEditor },
-      ]);
+      setDiscardModal(true);
     } else resetEditor();
   };
 
@@ -459,6 +457,35 @@ export default function FlashEditorScreen({ navigation }: any) {
         </KeyboardAvoidingView>
       )}
 
+      {/* Modal de descarte next-gen */}
+      <Modal visible={discardModal} transparent animationType="none" statusBarTranslucent onRequestClose={() => setDiscardModal(false)}>
+        <TouchableWithoutFeedback onPress={() => setDiscardModal(false)}>
+          <View style={s.modalBg}>
+            <TouchableWithoutFeedback>
+              <View style={s.modalSheet}>
+                <BlurView intensity={80} tint="dark" style={s.modalBlur}>
+                  <View style={s.modalHeader}>
+                    <View style={[s.modalIcon, { backgroundColor:"rgba(239,68,68,0.15)" }]}>
+                      <Ionicons name="trash-outline" size={22} color="#EF4444" />
+                    </View>
+                    <Text style={s.modalTitle}>Descartar Flash?</Text>
+                    <Text style={s.modalSub}>Todo o progresso será perdido.</Text>
+                  </View>
+                  <View style={s.modalDivider} />
+                  <TouchableOpacity style={[s.modalAction, { justifyContent:"center" }]} onPress={() => { setDiscardModal(false); resetEditor(); }} activeOpacity={0.7}>
+                    <Text style={{ color:"#EF4444", fontSize:16, fontWeight:"700" }}>Descartar</Text>
+                  </TouchableOpacity>
+                  <View style={s.modalDivider} />
+                  <TouchableOpacity style={[s.modalAction, { justifyContent:"center" }]} onPress={() => setDiscardModal(false)} activeOpacity={0.7}>
+                    <Text style={{ color:"rgba(255,255,255,0.5)", fontSize:15 }}>Continuar editando</Text>
+                  </TouchableOpacity>
+                </BlurView>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
       {/* Barra superior */}
       <View style={[s.topBar, { paddingTop:insets.top+12 }]}>
         <TouchableOpacity style={s.editorBtn} onPress={confirmDiscard} activeOpacity={0.8}>
@@ -587,4 +614,13 @@ const s = StyleSheet.create({
   textIn:    { minHeight:56, textAlignVertical:"top", paddingVertical:4 },
   addTextBtn:{ backgroundColor:"#7C3AED", borderRadius:14, paddingVertical:12, alignItems:"center" },
   addTextLabel:{ color:"#fff", fontWeight:"700", fontSize:14 },
+  modalBg:     { flex:1, backgroundColor:"rgba(0,0,0,0.6)", justifyContent:"center", paddingHorizontal:24 },
+  modalSheet:  { borderRadius:22, overflow:"hidden", backgroundColor:"rgba(10,10,15,0.85)" },
+  modalBlur:   { paddingBottom:4 },
+  modalHeader: { alignItems:"center", paddingVertical:22, paddingHorizontal:20, gap:6 },
+  modalIcon:   { width:48, height:48, borderRadius:24, alignItems:"center", justifyContent:"center", marginBottom:4 },
+  modalTitle:  { fontSize:17, fontWeight:"700", color:"#fff", letterSpacing:-0.3 },
+  modalSub:    { fontSize:13, color:"rgba(255,255,255,0.45)" },
+  modalDivider:{ height:StyleSheet.hairlineWidth, backgroundColor:"rgba(255,255,255,0.1)" },
+  modalAction: { flexDirection:"row", alignItems:"center", paddingHorizontal:20, paddingVertical:18 },
 });
