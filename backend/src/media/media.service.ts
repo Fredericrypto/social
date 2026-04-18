@@ -65,54 +65,53 @@ export class MediaService implements OnModuleInit {
     }
   }
 
+  // ── Gera URL de upload para MinIO local (dev) ─────────────────────────────
+  // Em produção (Supabase), não usa presigned URL — usa uploadFile() direto
   async getUploadUrl(folder: UploadFolder, ext: string) {
-    const key = `${folder}/${uuidv4()}.${ext}`;
-
     if (this.useSupabase) {
-      return this.getSupabaseUploadUrl(key);
+      // Retorna uma "fake" uploadUrl apontando para o próprio backend
+      // O mobile vai fazer POST /media/upload com o arquivo
+      const key = `${folder}/${uuidv4()}.${ext}`;
+      const publicUrl = `${this.supabaseProjectUrl}/storage/v1/object/public/${this.supabaseBucket}/${key}`;
+      // uploadUrl aponta para o endpoint do próprio backend
+      const uploadUrl = `__supabase__:${key}`;
+      return { uploadUrl, publicUrl, key };
     }
 
+    const key = `${folder}/${uuidv4()}.${ext}`;
     const uploadUrl = await this.minioClient.presignedPutObject(this.bucket, key, 60 * 5);
     const publicUrl = `http://${this.config.get('MINIO_ENDPOINT') || 'localhost'}:${this.config.get('MINIO_PORT') || '9000'}/${this.bucket}/${key}`;
     return { uploadUrl, publicUrl, key };
   }
 
-  private async getSupabaseUploadUrl(key: string) {
-    // Supabase exige POST com body JSON {} e Content-Type application/json
-    const url = `${this.supabaseProjectUrl}/storage/v1/object/sign/upload/${this.supabaseBucket}/${key}`;
+  // ── Upload direto para Supabase (produção) ────────────────────────────────
+  async uploadFile(key: string, buffer: Buffer, mimeType: string): Promise<string> {
+    if (this.useSupabase) {
+      const url = `${this.supabaseProjectUrl}/storage/v1/object/${this.supabaseBucket}/${key}`;
+      const response = await fetch(url, {
+        method:  'POST',
+        headers: {
+          'Authorization': `Bearer ${this.supabaseServiceKey}`,
+          'Content-Type':  mimeType,
+          'x-upsert':      'true',
+        },
+        body: buffer,
+      });
 
-    const response = await fetch(url, {
-      method:  'POST',
-      headers: {
-        'Authorization': `Bearer ${this.supabaseServiceKey}`,
-        'Content-Type':  'application/json',
-      },
-      body: JSON.stringify({}), // body vazio mas obrigatório
-    });
+      if (!response.ok) {
+        const err = await response.text();
+        console.error('Supabase upload error:', response.status, err);
+        throw new Error(`Supabase upload error: ${response.status}`);
+      }
 
-    if (!response.ok) {
-      const err = await response.text();
-      console.error('Supabase presign error:', response.status, err);
-      throw new Error(`Supabase storage error: ${response.status}`);
+      const publicUrl = `${this.supabaseProjectUrl}/storage/v1/object/public/${this.supabaseBucket}/${key}`;
+      console.log('✅ Supabase upload OK:', publicUrl.substring(0, 70));
+      return publicUrl;
     }
 
-    const data = await response.json();
-    console.log('Supabase presign response:', JSON.stringify(data));
-
-    const signedPath = data.signedURL || data.url || data.signed_url || data.signedUrl;
-    if (!signedPath) {
-      console.error('Supabase resposta inesperada:', data);
-      throw new Error('Supabase não retornou signedURL');
-    }
-
-    const uploadUrl = signedPath.startsWith('http')
-      ? signedPath
-      : `${this.supabaseProjectUrl}${signedPath}`;
-
-    const publicUrl = `${this.supabaseProjectUrl}/storage/v1/object/public/${this.supabaseBucket}/${key}`;
-
-    console.log('✅ Supabase presigned URL OK:', publicUrl.substring(0, 60));
-    return { uploadUrl, publicUrl, key };
+    // MinIO local
+    await this.minioClient.putObject(this.bucket, key, buffer, buffer.length, { 'Content-Type': mimeType });
+    return `http://${this.config.get('MINIO_ENDPOINT') || 'localhost'}:${this.config.get('MINIO_PORT') || '9000'}/${this.bucket}/${key}`;
   }
 
   async deleteFile(key: string): Promise<void> {
