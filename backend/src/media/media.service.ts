@@ -7,63 +7,51 @@ type UploadFolder = 'avatars' | 'posts' | 'covers' | 'stories';
 
 @Injectable()
 export class MediaService implements OnModuleInit {
-  private client: Minio.Client;
+  private minioClient: Minio.Client;
   private bucket: string;
-  private publicBaseUrl: string;
   private useSupabase: boolean;
+
+  // Supabase específico
+  private supabaseProjectUrl: string;
+  private supabaseServiceKey: string;
+  private supabaseBucket: string;
 
   constructor(private readonly config: ConfigService) {
     const supabaseEndpoint = config.get<string>('SUPABASE_S3_ENDPOINT');
-
-    // Usa Supabase S3 se a variável estiver configurada
     this.useSupabase = !!supabaseEndpoint;
 
     if (this.useSupabase) {
-      // Supabase S3 — endpoint no formato https://xxx.storage.supabase.co/storage/v1/s3
-      const endpointUrl = new URL(supabaseEndpoint!);
-      this.bucket = config.get('SUPABASE_S3_BUCKET') || 'minha-rede';
-
-      this.client = new Minio.Client({
-        endPoint:  endpointUrl.hostname,
-        port:      443,
-        useSSL:    true,
-        pathStyle: true,
-        accessKey: config.get('SUPABASE_S3_ACCESS_KEY') || '',
-        secretKey: config.get('SUPABASE_S3_SECRET_KEY') || '',
-        region:    config.get('SUPABASE_S3_REGION') || 'us-east-1',
-      });
-
-      // URL pública do Supabase Storage
-      // formato: https://[project].supabase.co/storage/v1/object/public/[bucket]/[key]
-      const projectId = endpointUrl.hostname.split('.')[0];
-      this.publicBaseUrl = `https://${projectId}.supabase.co/storage/v1/object/public/${this.bucket}`;
-
-      console.log('☁️  Storage: Supabase S3');
+      // Extrai project ID do endpoint
+      // ex: https://cyifplgljtWmnfrxrrsn.storage.supabase.co/storage/v1/s3
+      const endpointUrl  = new URL(supabaseEndpoint!);
+      const projectId    = endpointUrl.hostname.split('.')[0];
+      this.supabaseProjectUrl = `https://${projectId}.supabase.co`;
+      this.supabaseServiceKey = config.get('SUPABASE_SERVICE_KEY') || '';
+      this.supabaseBucket     = config.get('SUPABASE_S3_BUCKET') || 'minha-rede';
+      this.bucket             = this.supabaseBucket;
+      console.log(`☁️  Storage: Supabase (${this.supabaseProjectUrl})`);
     } else {
-      // MinIO local para desenvolvimento
-      const endpoint = config.get('MINIO_ENDPOINT') || 'localhost';
-      const port     = parseInt(config.get('MINIO_PORT') || '9000');
-      this.bucket    = config.get('MINIO_BUCKET') || 'minha-rede';
-
-      this.client = new Minio.Client({
+      // MinIO local
+      const endpoint  = config.get('MINIO_ENDPOINT') || 'localhost';
+      const port      = parseInt(config.get('MINIO_PORT') || '9000');
+      this.bucket     = config.get('MINIO_BUCKET') || 'minha-rede';
+      this.minioClient = new Minio.Client({
         endPoint:  endpoint,
         port,
         useSSL:    false,
         accessKey: config.get('MINIO_ACCESS_KEY') || 'minioadmin',
         secretKey: config.get('MINIO_SECRET_KEY') || 'minioadmin',
       });
-
-      this.publicBaseUrl = `http://${endpoint}:${port}/${this.bucket}`;
       console.log(`🗄️  Storage: MinIO (${endpoint}:${port})`);
     }
   }
 
   async onModuleInit() {
-    if (this.useSupabase) return; // Supabase — bucket gerenciado no dashboard
+    if (this.useSupabase) return;
     try {
-      const exists = await this.client.bucketExists(this.bucket);
+      const exists = await this.minioClient.bucketExists(this.bucket);
       if (!exists) {
-        await this.client.makeBucket(this.bucket);
+        await this.minioClient.makeBucket(this.bucket);
         const policy = JSON.stringify({
           Version: '2012-10-17',
           Statement: [{
@@ -73,7 +61,7 @@ export class MediaService implements OnModuleInit {
             Resource:  [`arn:aws:s3:::${this.bucket}/*`],
           }],
         });
-        await this.client.setBucketPolicy(this.bucket, policy);
+        await this.minioClient.setBucketPolicy(this.bucket, policy);
         console.log(`✅ Bucket '${this.bucket}' criado`);
       }
     } catch (e) {
@@ -85,20 +73,65 @@ export class MediaService implements OnModuleInit {
     const key = `${folder}/${uuidv4()}.${ext}`;
 
     if (this.useSupabase) {
-      // Supabase S3 — presigned PUT via MinIO SDK com path completo
-      const supabaseEndpoint = this.config.get<string>('SUPABASE_S3_ENDPOINT')!;
-      const fullPath = `${this.bucket}/${key}`;
-      const uploadUrl = await this.client.presignedPutObject(this.bucket, key, 60 * 5);
-      const publicUrl = `${this.publicBaseUrl}/${key}`;
-      return { uploadUrl, publicUrl, key };
+      return this.getSupabaseUploadUrl(key);
     }
 
-    const uploadUrl = await this.client.presignedPutObject(this.bucket, key, 60 * 5);
-    const publicUrl = `${this.publicBaseUrl}/${key}`;
+    // MinIO local — presigned PUT
+    const uploadUrl = await this.minioClient.presignedPutObject(this.bucket, key, 60 * 5);
+    const publicUrl = `http://${this.config.get('MINIO_ENDPOINT') || 'localhost'}:${this.config.get('MINIO_PORT') || '9000'}/${this.bucket}/${key}`;
+    return { uploadUrl, publicUrl, key };
+  }
+
+  private async getSupabaseUploadUrl(key: string) {
+    // Supabase Storage API — gera presigned upload URL via REST
+    // POST /storage/v1/object/sign/upload/{bucketName}/{objectPath}
+    const url = `${this.supabaseProjectUrl}/storage/v1/object/sign/upload/${this.supabaseBucket}/${key}`;
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${this.supabaseServiceKey}`,
+        'Content-Type':  'application/json',
+        'x-upsert':      'true',
+      },
+    });
+
+    if (!response.ok) {
+      const err = await response.text();
+      console.error('Supabase presign error:', response.status, err);
+      throw new Error(`Supabase storage error: ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    // Supabase retorna { signedURL: '/storage/v1/object/sign/...' }
+    // O uploadUrl para PUT é o endpoint completo
+    const signedPath = data.signedURL || data.url || data.signed_url;
+    const uploadUrl  = signedPath.startsWith('http')
+      ? signedPath
+      : `${this.supabaseProjectUrl}${signedPath}`;
+
+    // URL pública para acesso após upload
+    const publicUrl = `${this.supabaseProjectUrl}/storage/v1/object/public/${this.supabaseBucket}/${key}`;
+
+    console.log('✅ Supabase presigned URL gerada:', { uploadUrl: uploadUrl.substring(0, 80), publicUrl });
+
     return { uploadUrl, publicUrl, key };
   }
 
   async deleteFile(key: string): Promise<void> {
-    try { await this.client.removeObject(this.bucket, key); } catch {}
+    if (this.useSupabase) {
+      try {
+        await fetch(
+          `${this.supabaseProjectUrl}/storage/v1/object/${this.supabaseBucket}/${key}`,
+          {
+            method:  'DELETE',
+            headers: { 'Authorization': `Bearer ${this.supabaseServiceKey}` },
+          }
+        );
+      } catch {}
+      return;
+    }
+    try { await this.minioClient.removeObject(this.bucket, key); } catch {}
   }
 }
