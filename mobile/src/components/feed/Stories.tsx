@@ -308,7 +308,13 @@ function StoryViewer({ allGroups, startIndex, onClose, onDeleteStory, onAddNew, 
               return (
                 <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
                   {layers.map((layer: any, i: number) => (
-                    <View key={i} style={[vw.textLayerBase, layer.x != null ? { left: layer.x, top: layer.y } : { alignSelf:"center", top:"38%" }]}>
+                    <View key={i} style={[vw.textLayerBase, layer.x != null ? {
+                          left: layer.x, top: layer.y,
+                          transform: [
+                            { scale: layer.scale ?? 1 },
+                            { rotate: `${layer.rotation ?? 0}rad` },
+                          ]
+                        } : { alignSelf:"center", top:"38%" }]}>
                       <Text style={{
                         color:      layer.color  || "#fff",
                         fontSize:   layer.size   || 24,

@@ -97,6 +97,8 @@ interface TextLayer {
   initY:     number;
   x:         number;
   y:         number;
+  scale:     number;
+  rotation:  number;
 }
 
 type EditorMode = "select" | "camera" | "preview";
@@ -114,12 +116,12 @@ function TextLayerView({
 }) {
   const tx  = useSharedValue(layer.initX);
   const ty  = useSharedValue(layer.initY);
-  const sc  = useSharedValue(1);
-  const ro  = useSharedValue(0);
+  const sc  = useSharedValue(layer.scale    ?? 1);
+  const ro  = useSharedValue(layer.rotation ?? 0);
   const stx = useSharedValue(layer.initX);
   const sty = useSharedValue(layer.initY);
-  const ssc = useSharedValue(1);
-  const sro = useSharedValue(0);
+  const ssc = useSharedValue(layer.scale    ?? 1);
+  const sro = useSharedValue(layer.rotation ?? 0);
 
   const pan = Gesture.Pan()
     .onStart(() => { stx.value = tx.value; sty.value = ty.value; })
@@ -132,12 +134,12 @@ function TextLayerView({
   const pinch = Gesture.Pinch()
     .onStart(() => { ssc.value = sc.value; })
     .onUpdate(e => { sc.value = Math.max(0.3, Math.min(5, ssc.value * e.scale)); })
-    .onEnd(() => { ssc.value = sc.value; });
+    .onEnd(() => { ssc.value = sc.value; if (onTransform) runOnJS(onTransform)(sc.value, ro.value); });
 
   const rotate = Gesture.Rotation()
     .onStart(() => { sro.value = ro.value; })
     .onUpdate(e => { ro.value = sro.value + e.rotation; })
-    .onEnd(() => { sro.value = ro.value; });
+    .onEnd(() => { sro.value = ro.value; if (onTransform) runOnJS(onTransform)(sc.value, ro.value); });
 
   const tap = Gesture.Tap()
     .numberOfTaps(1)
@@ -151,10 +153,12 @@ function TextLayerView({
     .minDuration(400)
     .onEnd(() => { runOnJS(onEdit)(); });
 
-  // Pan sempre ativo, pinch e rotate em corrida (um por vez)
-  const transformGesture = Gesture.Simultaneous(pan, Gesture.Race(pinch, rotate));
-  const tapGesture = Gesture.Exclusive(doubleTap, Gesture.Exclusive(longPress, tap));
-  const composed = Gesture.Simultaneous(transformGesture, tapGesture);
+  // Pan + Pinch + Rotate simultâneos (igual Instagram)
+  const composed = Gesture.Simultaneous(
+    pan,
+    Gesture.Simultaneous(pinch, rotate),
+    Gesture.Exclusive(doubleTap, Gesture.Exclusive(longPress, tap)),
+  );
 
   const aStyle = useAnimatedStyle(() => ({
     transform: [
@@ -336,6 +340,8 @@ export default function FlashEditorScreen({ navigation }: any) {
         initY:     SH * 0.35,
         x:         SW / 2 - 60,
         y:         SH * 0.35,
+        scale:     1,
+        rotation:  0,
       };
       setTextLayers(prev => [...prev, layer]);
       setSelectedId(layer.id);
@@ -400,6 +406,8 @@ export default function FlashEditorScreen({ navigation }: any) {
           highlight: l.highlight,
           x:         l.x ?? l.initX,
           y:         l.y ?? l.initY,
+          scale:     l.scale    ?? 1,
+          rotation:  l.rotation ?? 0,
         })))
       : undefined;
     if (!mediaUri && !caption) { openNewText(); return; }
@@ -577,6 +585,7 @@ export default function FlashEditorScreen({ navigation }: any) {
           onEdit={() => openEditText(layer)}
           onMirror={() => mirrorLayer(layer.id)}
           onMove={(x, y) => setTextLayers(prev => prev.map(l => l.id === layer.id ? { ...l, x, y } : l))}
+          onTransform={(scale, rotation) => setTextLayers(prev => prev.map(l => l.id === layer.id ? { ...l, scale, rotation } : l))}
         />
       ))}
 
@@ -641,7 +650,7 @@ export default function FlashEditorScreen({ navigation }: any) {
 
       {/* ── Seletor de fundo — só modo texto ── */}
       {!mediaUri && (
-        <View style={[s.bgPicker, { bottom: insets.bottom + 88 }]}>
+        <View style={[s.bgPicker, { bottom: insets.bottom + 90, zIndex:50 }]}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap:8, paddingHorizontal:16 }}>
             {BACKGROUNDS.map((bg, idx) => (
               <TouchableOpacity
