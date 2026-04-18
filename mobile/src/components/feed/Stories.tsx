@@ -2,7 +2,7 @@ import React, { useState, useRef, useCallback, useEffect } from "react";
 import {
   View, ScrollView, TouchableOpacity, Text, StyleSheet,
   Image, Modal, Dimensions, StatusBar, Animated,
-  TouchableWithoutFeedback, Alert, PanResponder,
+  TouchableWithoutFeedback, Alert, PanResponder, BackHandler,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
@@ -33,6 +33,15 @@ function StoryViewer({ allGroups, startIndex, onClose, onDeleteStory, onAddNew, 
   const animRef   = useRef<any>(null);
   const elapsed   = useRef(0);
   const startedAt = useRef(0);
+
+  // Android hardware back button fecha o viewer
+  useEffect(() => {
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      onClose();
+      return true;
+    });
+    return () => sub.remove();
+  }, []);
 
   const currentGroup = allGroups[groupIndex];
   const currentStory = currentGroup?.stories[storyIndex];

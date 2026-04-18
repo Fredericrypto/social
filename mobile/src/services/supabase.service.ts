@@ -1,12 +1,12 @@
 /**
  * supabase.service.ts
  * Upload direto mobile → Supabase Storage
- * Usa FormData com objeto file — único método que funciona no React Native
- * Compressão via expo-image-manipulator antes do upload
+ * Usa base64 — evita URI temporária expirada no Android (imagem preta)
  */
 import { createClient } from '@supabase/supabase-js';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as Crypto from 'expo-crypto';
+import * as FileSystem from 'expo-file-system';
 
 const SUPABASE_URL      = process.env.EXPO_PUBLIC_SUPABASE_URL!;
 const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
@@ -18,7 +18,6 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 
 export type UploadFolder = 'avatars' | 'posts' | 'covers' | 'stories';
 
-// Comprime e redimensiona para max 1080px antes do upload
 async function compressImage(localUri: string): Promise<string> {
   const result = await ImageManipulator.manipulateAsync(
     localUri,
@@ -32,21 +31,30 @@ export async function uploadImage(localUri: string, folder: UploadFolder): Promi
   // 1. Comprime
   const compressedUri = await compressImage(localUri);
 
-  // 2. Gera chave única com expo-crypto
+  // 2. Lê como base64 via expo-file-system — mais estável que fetch no Android
+  const base64 = await FileSystem.readAsStringAsync(compressedUri, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+
+  if (!base64 || base64.length < 100) {
+    throw new Error('Falha ao ler imagem — base64 vazio');
+  }
+
+  // 3. Converte base64 para Uint8Array
+  const binaryStr = atob(base64);
+  const bytes     = new Uint8Array(binaryStr.length);
+  for (let i = 0; i < binaryStr.length; i++) {
+    bytes[i] = binaryStr.charCodeAt(i);
+  }
+
+  // 4. Gera chave única
   const randomId = Crypto.randomUUID();
   const key      = `${folder}/${randomId}.jpg`;
 
-  // 3. Monta o objeto file para React Native — não usa fetch/blob
-  const fileObject = {
-    uri:  compressedUri,
-    name: `${randomId}.jpg`,
-    type: 'image/jpeg',
-  } as unknown as File;
-
-  // 4. Upload direto via supabase-js com objeto file
+  // 5. Upload via supabase-js com Uint8Array
   const { data, error } = await supabase.storage
     .from(BUCKET)
-    .upload(key, fileObject, {
+    .upload(key, bytes, {
       contentType: 'image/jpeg',
       upsert:      false,
     });
@@ -56,7 +64,7 @@ export async function uploadImage(localUri: string, folder: UploadFolder): Promi
     throw new Error(`Upload falhou: ${error.message}`);
   }
 
-  // 5. URL pública permanente
+  // 6. URL pública permanente
   const { data: urlData } = supabase.storage
     .from(BUCKET)
     .getPublicUrl(data.path);

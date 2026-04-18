@@ -6,7 +6,7 @@ import Navigation from "./src/navigation";
 import { useThemeStore } from "./src/store/theme.store";
 
 function ThemedRoot() {
-  const { theme } = useThemeStore();
+  const { theme, isDark } = useThemeStore();
 
   useLayoutEffect(() => {
     if (Platform.OS === "android") {
@@ -14,11 +14,11 @@ function ThemedRoot() {
       const prepareNav = async () => {
         await NavigationBar.setPositionAsync("absolute");
         await NavigationBar.setBackgroundColorAsync("#ffffff00"); // Transparente
-        await NavigationBar.setButtonStyleAsync(theme.dark ? "light" : "dark");
+        await NavigationBar.setButtonStyleAsync(isDark ? "light" : "dark");
       };
       prepareNav();
     }
-  }, [theme.dark]); // Re-executa se o tema mudar
+  }, [isDark]); // Re-executa se o tema mudar
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.background }}>
