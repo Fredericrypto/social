@@ -240,10 +240,48 @@ function StoryViewer({ allGroups, startIndex, onClose, onDeleteStory, onAddNew, 
         <StatusBar hidden />
 
         {/* Fundo */}
-        {currentStory.mediaUrl
-          ? <Image source={{ uri: currentStory.mediaUrl }} style={vw.bg} resizeMode="cover" />
-          : <LinearGradient colors={["#7C3AED", "#06B6D4"]} style={vw.bg} />
-        }
+        {(() => {
+          // Tenta extrair bgIndex do caption
+          let bgIndex = 3; // padrão roxo
+          try {
+            if (currentStory.caption) {
+              const d = JSON.parse(currentStory.caption);
+              if (d.bgIndex != null) bgIndex = d.bgIndex;
+            }
+          } catch {}
+          const BGSV: any[] = [
+            { type:"gradient", colors:["#7C3AED","#06B6D4"] },
+            { type:"gradient", colors:["#F43F5E","#F97316"] },
+            { type:"gradient", colors:["#0EA5E9","#22C55E"] },
+            { type:"gradient", colors:["#1E1040","#3B1F6E"] },
+            { type:"gradient", colors:["#0F172A","#1E293B"] },
+            { type:"gradient", colors:["#4C1D95","#BE185D"] },
+            { type:"gradient", colors:["#134E4A","#0E7490"] },
+            { type:"gradient", colors:["#7C2D12","#C2410C"] },
+            { type:"gradient", colors:["#064E3B","#065F46"] },
+            { type:"gradient", colors:["#1E3A8A","#1D4ED8"] },
+            { type:"gradient", colors:["#422006","#78350F"] },
+            { type:"gradient", colors:["#1C1917","#292524"] },
+            { type:"solid",    color:"#000000" },
+            { type:"solid",    color:"#FFFFFF" },
+            { type:"solid",    color:"#6B7280" },
+            { type:"solid",    color:"#1E293B" },
+            { type:"solid",    color:"#7C3AED" },
+            { type:"solid",    color:"#06B6D4" },
+            { type:"solid",    color:"#F43F5E" },
+            { type:"solid",    color:"#22C55E" },
+            { type:"solid",    color:"#F97316" },
+            { type:"solid",    color:"#EAB308" },
+          ];
+          const bg = BGSV[bgIndex % BGSV.length];
+          if (currentStory.mediaUrl) {
+            return <Image source={{ uri: currentStory.mediaUrl }} style={vw.bg} resizeMode="cover" />;
+          }
+          if (bg.type === "gradient") {
+            return <LinearGradient colors={bg.colors} style={vw.bg} />;
+          }
+          return <View style={[vw.bg, { backgroundColor: bg.color }]} />;
+        })()}
         <LinearGradient
           colors={["rgba(0,0,0,0.6)", "transparent", "transparent", "rgba(0,0,0,0.45)"]}
           style={StyleSheet.absoluteFillObject}
@@ -303,8 +341,10 @@ function StoryViewer({ allGroups, startIndex, onClose, onDeleteStory, onAddNew, 
         {/* Camadas de texto — renderiza JSON de layers ou texto simples */}
         {currentStory.caption && (() => {
           try {
-            const layers = JSON.parse(currentStory.caption);
-            if (Array.isArray(layers) && layers.length > 0) {
+            const parsed = JSON.parse(currentStory.caption);
+            // Suporta formato novo {layers, bgIndex} e formato antigo array
+            const layers = Array.isArray(parsed) ? parsed : (parsed.layers || []);
+            if (layers.length > 0) {
               return (
                 <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
                   {layers.map((layer: any, i: number) => (

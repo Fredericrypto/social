@@ -396,19 +396,24 @@ export default function FlashEditorScreen({ navigation }: any) {
 
   // ── Publicar ─────────────────────────────────────────────────────────────
   const handlePublish = async () => {
-    const caption = textLayers.length > 0
-      ? JSON.stringify(textLayers.map(l => ({
-          text:      l.text,
-          color:     l.color,
-          size:      l.size,
-          bold:      l.bold,
-          italic:    l.italic,
-          highlight: l.highlight,
-          x:         l.x ?? l.initX,
-          y:         l.y ?? l.initY,
-          scale:     l.scale    ?? 1,
-          rotation:  l.rotation ?? 0,
-        })))
+    // Serializa layers + bgIndex para o viewer renderizar corretamente
+    const flashData = {
+      layers: textLayers.map(l => ({
+        text:      l.text,
+        color:     l.color,
+        size:      l.size,
+        bold:      l.bold,
+        italic:    l.italic,
+        highlight: l.highlight,
+        x:         l.x ?? l.initX,
+        y:         l.y ?? l.initY,
+        scale:     l.scale    ?? 1,
+        rotation:  l.rotation ?? 0,
+      })),
+      bgIndex: !mediaUri ? bgIndex : null,
+    };
+    const caption = (textLayers.length > 0 || !mediaUri)
+      ? JSON.stringify(flashData)
       : undefined;
     if (!mediaUri && !caption) { openNewText(); return; }
     setUploading(true);
