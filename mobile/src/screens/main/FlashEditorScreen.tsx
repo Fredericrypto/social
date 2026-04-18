@@ -105,7 +105,7 @@ type EditorMode = "select" | "camera" | "preview";
 
 // ─── Camada de texto com gestos completos ────────────────────────────────────
 function TextLayerView({
-  layer, isSelected, onSelect, onEdit, onMirror, onMove,
+  layer, isSelected, onSelect, onEdit, onMirror, onMove, onTransform,
 }: {
   layer:     TextLayer;
   isSelected: boolean;
@@ -567,7 +567,7 @@ export default function FlashEditorScreen({ navigation }: any) {
 
       {/* ── Tap em área vazia — usa TouchableOpacity sem feedback visual ── */}
       <TouchableOpacity
-        style={[StyleSheet.absoluteFillObject, { zIndex:1 }]}
+        style={[StyleSheet.absoluteFillObject, { zIndex:0 }]}
         onPress={() => {
           if (selectedId) { setSelectedId(null); return; }
           openNewText();
