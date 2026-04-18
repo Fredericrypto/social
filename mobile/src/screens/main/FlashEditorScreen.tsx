@@ -541,15 +541,15 @@ export default function FlashEditorScreen({ navigation }: any) {
         <View style={[StyleSheet.absoluteFillObject, { backgroundColor: currentBg.color }]} />
       )}
 
-      {/* ── Tap em área vazia — ABAIXO das camadas (zIndex:1) ── */}
-      <TouchableWithoutFeedback
+      {/* ── Tap em área vazia — usa TouchableOpacity sem feedback visual ── */}
+      <TouchableOpacity
+        style={[StyleSheet.absoluteFillObject, { zIndex:1 }]}
         onPress={() => {
           if (selectedId) { setSelectedId(null); return; }
           openNewText();
         }}
-      >
-        <View style={[StyleSheet.absoluteFillObject, { zIndex:1 }]} />
-      </TouchableWithoutFeedback>
+        activeOpacity={1}
+      />
 
       {/* ── Camadas de texto — ACIMA do tap handler (zIndex:20) ── */}
       {textLayers.map(layer => (
@@ -622,6 +622,28 @@ export default function FlashEditorScreen({ navigation }: any) {
         </View>
       </View>
 
+      {/* ── Seletor de fundo — só modo texto ── */}
+      {!mediaUri && (
+        <View style={[s.bgPicker, { bottom: insets.bottom + 88 }]}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap:8, paddingHorizontal:16 }}>
+            {BACKGROUNDS.map((bg, i) => (
+              <TouchableOpacity
+                key={i}
+                onPress={() => setBgIndex(i)}
+                activeOpacity={0.8}
+                style={[s.bgDot, bgIndex === i && s.bgDotOn]}
+              >
+                {bg.type === "gradient" ? (
+                  <LinearGradient colors={bg.colors} style={s.bgDotInner} />
+                ) : (
+                  <View style={[s.bgDotInner, { backgroundColor: bg.color }]} />
+                )}
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      )}
+
       {/* ── Barra inferior — zona do polegar ── */}
       <View style={[s.botBar, { paddingBottom: insets.bottom + 20 }]}>
         {/* Seletor duração com blur */}
@@ -643,7 +665,7 @@ export default function FlashEditorScreen({ navigation }: any) {
         {/* Publicar — só aparece com conteúdo */}
         {(mediaUri || textLayers.length > 0) && (
           <TouchableOpacity
-            style={[s.pubBtn, uploading && { opacity: 0.5 }]}
+            style={[s.pubBtn, { backgroundColor: theme.primary }, uploading && { opacity: 0.5 }]}
             onPress={handlePublish}
             disabled={uploading}
             activeOpacity={0.88}
@@ -871,7 +893,11 @@ const s = StyleSheet.create({
   durBarBtnOn: { backgroundColor:"rgba(124,58,237,0.7)" },
   durBarTxt:   { color:"rgba(255,255,255,0.4)", fontSize:11, fontWeight:"600" },
   durBarTxtOn: { color:"#fff", fontWeight:"800" },
-  pubBtn:   { flexDirection:"row", alignItems:"center", gap:8, backgroundColor:"#7C3AED", paddingHorizontal:22, paddingVertical:12, borderRadius:26, elevation:4 },
+  pubBtn:   { flexDirection:"row", alignItems:"center", gap:8, paddingHorizontal:22, paddingVertical:12, borderRadius:26, elevation:4 },
+  bgPicker:  { position:"absolute", left:0, right:0, zIndex:10 },
+  bgDot:     { width:32, height:32, borderRadius:16, borderWidth:2, borderColor:"transparent", padding:2 },
+  bgDotOn:   { borderColor:"rgba(255,255,255,0.8)" },
+  bgDotInner:{ flex:1, borderRadius:14 },
   pubTxt:   { color:"#fff", fontWeight:"700", fontSize:14 },
 
   // Modal texto
