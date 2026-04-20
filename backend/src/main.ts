@@ -42,3 +42,4 @@ async function bootstrap() {
   console.log(`📖 Docs em http://localhost:${port}/api/docs`);
 }
 bootstrap();
+// seg 20 abr 2026 17:14:12 -03
