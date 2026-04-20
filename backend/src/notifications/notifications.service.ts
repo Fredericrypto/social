@@ -30,6 +30,7 @@ export class NotificationsService {
         'actor.username',
         'actor.displayName',
         'actor.avatarUrl',
+        'actor.presenceStatus',
       ])
       .where('n.recipientId = :userId', { userId })
       .orderBy('n.createdAt', 'DESC')
@@ -46,6 +47,7 @@ export class NotificationsService {
         username: notifications.raw[i]?.actor_username,
         displayName: notifications.raw[i]?.actor_displayName,
         avatarUrl: notifications.raw[i]?.actor_avatarUrl,
+        presenceStatus: notifications.raw[i]?.actor_presenceStatus ?? 'offline',
       },
     }));
 
