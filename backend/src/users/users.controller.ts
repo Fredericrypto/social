@@ -1,6 +1,6 @@
 import {
   Controller, Get, Patch, Body, Param, Query,
-  UseGuards, Request, Optional,
+  UseGuards, Request,
 } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { UsersService } from "./users.service";
@@ -24,7 +24,7 @@ class UpdateProfileDto {
   @IsOptional() @IsIn(["everyone", "followers", "nobody"]) whoCanMessage?: string;
   @IsOptional() @IsString()  bannerGradient?:        string;
   @IsOptional() @IsBoolean() showEarlyAdopterBadge?: boolean;
-  @IsOptional() @IsString()  presenceStatus?:       string;
+  @IsOptional() @IsString()  presenceStatus?:        string;
   @IsOptional() @IsString()  expoPushToken?:         string | null;
 }
 
@@ -32,6 +32,8 @@ class UpdateProfileDto {
 @Controller("users")
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
+
+  // ── Rotas fixas (devem vir ANTES de :username) ────────────────────────────
 
   @Get("me")
   @UseGuards(JwtAuthGuard)
@@ -47,6 +49,32 @@ export class UsersController {
   search(@Query("q") q: string, @Request() req) {
     const requestingUserId = req.user?.id;
     return this.usersService.search(q || "", 20, requestingUserId);
+  }
+
+  /**
+   * GET /users/presence?ids=uuid1,uuid2,uuid3
+   * Retorna status de presença de múltiplos usuários de uma vez.
+   * Usado pelo MessagesScreen para popular o presenceMap inicial.
+   */
+  @Get("presence")
+  @UseGuards(OptionalJwtGuard)
+  async getPresenceBatch(@Query("ids") ids: string) {
+    if (!ids?.trim()) return [];
+    const idList = ids.split(",").map(s => s.trim()).filter(Boolean).slice(0, 50);
+    return this.usersService.getPresenceBatch(idList);
+  }
+
+  // ── Rotas com parâmetro (:username) ────────────────────────────────────────
+
+  /**
+   * GET /users/:username/presence
+   * Retorna o status de presença de um usuário específico.
+   * Usado pelo ChatScreen ao abrir uma conversa.
+   */
+  @Get(":username/presence")
+  @UseGuards(OptionalJwtGuard)
+  async getUserPresence(@Param("username") username: string) {
+    return this.usersService.getUserPresence(username);
   }
 
   @Get(":username")

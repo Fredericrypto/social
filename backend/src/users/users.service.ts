@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { User } from './entities/user.entity';
 import * as bcrypt from 'bcrypt';
 
@@ -115,5 +115,40 @@ export class UsersService {
       .then(rows => new Set(rows.map((r: any) => r.followingId)));
 
     return users.map(u => ({ ...u, isFollowing: followedIds.has(u.id) }));
+  }
+
+  /**
+   * Retorna o status de presença de um único usuário pelo username.
+   * Fallback para 'offline' se a coluna ainda não existir.
+   */
+  async getUserPresence(username: string): Promise<{ userId: string; username: string; status: string }> {
+    const user = await this.userRepo.findOne({
+      where: { username },
+      select: ['id', 'username', 'presenceStatus'] as any,
+    });
+    if (!user) throw new NotFoundException('Usuário não encontrado');
+    return {
+      userId:   user.id,
+      username: user.username,
+      status:   (user as any).presenceStatus ?? 'offline',
+    };
+  }
+
+  /**
+   * Retorna o status de presença de múltiplos usuários por ID (batch).
+   * Limita a 50 IDs por chamada.
+   */
+  async getPresenceBatch(ids: string[]): Promise<{ userId: string; status: string }[]> {
+    if (ids.length === 0) return [];
+
+    const users = await this.userRepo.find({
+      where: { id: In(ids) },
+      select: ['id', 'presenceStatus'] as any,
+    });
+
+    return users.map(u => ({
+      userId: u.id,
+      status: (u as any).presenceStatus ?? 'offline',
+    }));
   }
 }
