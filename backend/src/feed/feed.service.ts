@@ -44,7 +44,7 @@ export class FeedService {
       .innerJoin('post.user', 'user')
       .addSelect([
         'user.id', 'user.username', 'user.displayName',
-        'user.avatarUrl', 'user.isVerified',
+        'user.avatarUrl', 'user.isVerified', 'user.presenceStatus',
       ])
       .andWhere('post.isDeleted = false')
       .orderBy('feed.createdAt', 'DESC')
@@ -58,7 +58,6 @@ export class FeedService {
 
     const postIds = items.map(i => i.post.id);
 
-    // ── Uma query para todos os likes do usuário neste lote ───────────────
     const likedRows = await this.feedRepo.manager
       .createQueryBuilder()
       .select('l.postId')
@@ -69,7 +68,6 @@ export class FeedService {
 
     const likedSet = new Set(likedRows.map((r: any) => r.l_postId ?? r.postId));
 
-    // ── Uma query para todos os salvamentos do usuário neste lote ─────────
     const savedRows = await this.feedRepo.manager
       .createQueryBuilder()
       .select('s.postId')
@@ -77,7 +75,7 @@ export class FeedService {
       .where('s.userId = :userId', { userId })
       .andWhere('s.postId IN (:...ids)', { ids: postIds })
       .getRawMany()
-      .catch(() => []); // tabela pode não existir ainda
+      .catch(() => []);
 
     const savedSet = new Set(savedRows.map((r: any) => r.s_postId ?? r.postId));
 
@@ -85,8 +83,8 @@ export class FeedService {
       posts: items.map(i => ({
         ...i.post,
         feedCreatedAt: i.createdAt,
-        isLiked: likedSet.has(i.post.id),   // ← estado real do like
-        isSaved: savedSet.has(i.post.id),   // ← estado real do saved
+        isLiked: likedSet.has(i.post.id),
+        isSaved: savedSet.has(i.post.id),
       })),
       total,
       page,

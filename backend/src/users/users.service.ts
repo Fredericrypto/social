@@ -100,7 +100,7 @@ export class UsersService {
       .createQueryBuilder('user')
       .where('user.username ILIKE :q OR user.displayName ILIKE :q', { q: `%${query}%` })
       .andWhere('user.isActive = true')
-      .select(['user.id', 'user.username', 'user.displayName', 'user.avatarUrl', 'user.isVerified'])
+      .select(['user.id', 'user.username', 'user.displayName', 'user.avatarUrl', 'user.isVerified', 'user.presenceStatus'])
       .limit(limit)
       .getMany();
 
