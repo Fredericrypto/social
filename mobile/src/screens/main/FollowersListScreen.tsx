@@ -102,7 +102,7 @@ export default function FollowersListScreen({ route, navigation }: any) {
               : navigation.navigate("UserProfile", { username: item.username })
           }
         >
-          <Avatar uri={item.avatarUrl} name={item.displayName || item.username} size={46} />
+          <Avatar uri={item.avatarUrl} name={item.displayName || item.username} size={46} presenceStatus={(item as any)?.presenceStatus ?? null} />
           <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={[s.name, { color: theme.text }]} numberOfLines={1}>
               {item.displayName || item.username}

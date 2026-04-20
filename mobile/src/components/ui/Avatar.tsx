@@ -2,6 +2,8 @@ import React from "react";
 import { View, Image, Text, StyleSheet } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useThemeStore } from "../../store/theme.store";
+import PresenceDot from "./PresenceDot";
+import { PresenceStatus } from "../../services/presence.service";
 
 interface Props {
   uri?: string | null;
@@ -11,6 +13,11 @@ interface Props {
   ring?: false | "default" | "active";
   /** @deprecated use ring="active" */
   showRing?: boolean;
+  /**
+   * Quando fornecido, exibe um PresenceDot posicionado no canto inferior direito.
+   * O dot se adapta ao tamanho do avatar automaticamente.
+   */
+  presenceStatus?: PresenceStatus | null;
 }
 
 export default function Avatar({
@@ -19,6 +26,7 @@ export default function Avatar({
   size = 40,
   ring,
   showRing,
+  presenceStatus,
 }: Props) {
   const { theme } = useThemeStore();
 
@@ -38,8 +46,11 @@ export default function Avatar({
       .toUpperCase()
       .slice(0, 2) || "?";
 
-  const innerSize  = ringMode ? size - 6 : size;   // 3px gap de cada lado
-  const totalSize  = ringMode ? size : size;
+  const innerSize = ringMode ? size - 6 : size;
+  const totalSize = ringMode ? size : size;
+
+  // Tamanho do dot proporcional ao avatar (mínimo 8, máximo 14)
+  const dotSize = Math.max(8, Math.min(14, Math.round(size * 0.28)));
 
   const innerView = (
     <View
@@ -74,8 +85,23 @@ export default function Avatar({
     </View>
   );
 
-  if (ringMode === "active") {
+  // ── Wrapper que adiciona o PresenceDot (se fornecido) ──────────────────
+  const withDot = (child: React.ReactNode, containerSize: number) => {
+    if (!presenceStatus) return child as React.ReactElement;
     return (
+      <View style={{ width: containerSize, height: containerSize }}>
+        {child}
+        <PresenceDot
+          status={presenceStatus}
+          size={dotSize}
+          absolute
+        />
+      </View>
+    );
+  };
+
+  if (ringMode === "active") {
+    const gradient = (
       <LinearGradient
         colors={["#7C3AED", "#06B6D4"]}
         style={{
@@ -104,10 +130,11 @@ export default function Avatar({
         </View>
       </LinearGradient>
     );
+    return withDot(gradient, totalSize);
   }
 
   if (ringMode === "default") {
-    return (
+    const defaultRing = (
       <View
         style={{
           width: totalSize,
@@ -123,9 +150,10 @@ export default function Avatar({
         {innerView}
       </View>
     );
+    return withDot(defaultRing, totalSize);
   }
 
-  return innerView;
+  return withDot(innerView, totalSize) as React.ReactElement;
 }
 
 const styles = StyleSheet.create({

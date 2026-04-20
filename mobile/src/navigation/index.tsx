@@ -2,14 +2,13 @@ import React, { useEffect, useRef } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createStackNavigator } from "@react-navigation/stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
-import { View, ActivityIndicator, StyleSheet, Text, Animated } from "react-native";
+import { View, ActivityIndicator, StyleSheet, Text, Animated, AppState } from "react-native";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { BlurView } from "expo-blur";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { Platform, DeviceEventEmitter } from "react-native";
 
-// Event emitido quando usuário toca na aba já ativa → telas escutam para scroll to top + refresh
 export const TAB_PRESS_EVENT = "TAB_PRESS_SCROLL_TOP";
 import * as NavigationBar from "expo-navigation-bar";
 import { useAuthStore } from "../store/auth.store";
@@ -18,6 +17,7 @@ import { presenceService } from "../services/presence.service";
 import { BadgeProvider, useBadges } from "../context/BadgeContext";
 import { socketService } from "../services/socket.service";
 import { notificationsService } from "../services/notifications.service";
+import VenusLogo from "../components/ui/VenusLogo";
 
 import LoginScreen         from "../screens/auth/LoginScreen";
 import RegisterScreen      from "../screens/auth/RegisterScreen";
@@ -169,7 +169,6 @@ function MainStack() {
   );
 }
 
-// Auth Stack — cores FIXAS dark, nunca muda com o tema
 function AuthStack() {
   const AUTH_THEME = {
     dark: true,
@@ -192,19 +191,18 @@ function AuthStack() {
 function AppContent() {
   const { isAuthenticated, isLoading, loadUser } = useAuthStore();
   const { theme, isDark } = useThemeStore();
-  const navigationRef = useRef<any>(null);
+  const navigationRef     = useRef<any>(null);
+  const appState          = useRef(AppState.currentState);
 
   useEffect(() => { loadUser(); }, []);
 
-  // ── Android Navigation Bar — sincroniza cor com o tema ─────────────────
-  // Sem isso, a barra do sistema fica com cor errada no cold start
   useEffect(() => {
     if (Platform.OS !== "android") return;
     NavigationBar.setBackgroundColorAsync(theme.background).catch(() => {});
     NavigationBar.setButtonStyleAsync(isDark ? "light" : "dark").catch(() => {});
   }, [theme.background, isDark]);
 
-  // ── Presence: online ao autenticar, offline ao sair ────────────────────
+  // ── Presença: online ao autenticar, offline ao sair ───────────────────
   useEffect(() => {
     if (isAuthenticated) {
       presenceService.goOnline();
@@ -213,7 +211,26 @@ function AppContent() {
     }
   }, [isAuthenticated]);
 
-  // ── Socket: conecta ao autenticar, desconecta ao sair ──────────────────
+  // ── Presença: background/foreground via AppState ──────────────────────
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const sub = AppState.addEventListener("change", (nextState) => {
+      appState.current = nextState;
+
+      if (nextState === "active") {
+        // Voltou ao foreground — respeita status manual salvo
+        presenceService.goOnline();
+      } else if (nextState === "background" || nextState === "inactive") {
+        // Minimizou — away (não offline, pode voltar)
+        presenceService.goAway();
+      }
+    });
+
+    return () => sub.remove();
+  }, [isAuthenticated]);
+
+  // ── Socket ────────────────────────────────────────────────────────────
   useEffect(() => {
     if (isAuthenticated) {
       socketService.connect();
@@ -223,7 +240,7 @@ function AppContent() {
     return () => {};
   }, [isAuthenticated]);
 
-  // ── Push Notifications: registra token ao autenticar ───────────────────
+  // ── Push notifications ────────────────────────────────────────────────
   useEffect(() => {
     if (!isAuthenticated) return;
     notificationsService.setNavigationRef(navigationRef);
@@ -244,13 +261,13 @@ function AppContent() {
     },
   };
 
+  // ── Tela de loading inicial — aparece enquanto o JWT é verificado ──────
   if (isLoading) {
+    const loadBg      = isDark ? "#0D1018" : "#F9F8F6";
+    const loadPrimary = isDark ? "#64748B" : "#78716C";
     return (
-      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#0A0A0F" }}>
-        <LinearGradient colors={["#7C3AED", "#6D28D9"]} style={{ width: 72, height: 72, borderRadius: 22, alignItems: "center", justifyContent: "center" }}>
-          <Text style={{ fontSize: 28, color: "#fff" }}>◈</Text>
-        </LinearGradient>
-        <ActivityIndicator color="#7C3AED" style={{ marginTop: 24 }} />
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: loadBg }}>
+        <VenusLogo size={72} color={loadPrimary} animated />
       </View>
     );
   }

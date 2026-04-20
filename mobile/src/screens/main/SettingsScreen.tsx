@@ -11,11 +11,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuthStore } from "../../store/auth.store";
 import { useThemeStore, SupportedLocale, LOCALE_LABELS } from "../../store/theme.store";
 import { ALL_PALETTES } from "../../theme";
+import { presenceService, PresenceStatus, PRESENCE_COLORS, PRESENCE_LABELS } from "../../services/presence.service";
 import Avatar from "../../components/ui/Avatar";
 import TermsModal from "../../components/modals/TermsModal";
 
 const { height: SCREEN_H } = Dimensions.get("window");
-const PANEL_H        = SCREEN_H * 0.80; // mais alto para caber 22 paletas
+const PANEL_H         = SCREEN_H * 0.80;
 const SWIPE_THRESHOLD = 80;
 
 // ── SettingRow ────────────────────────────────────────────────────────────────
@@ -56,7 +57,123 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-// ── PaletteModal — 22 paletas independentes ───────────────────────────────────
+// ── StatusModal — seletor manual de presença ───────────────────────────────────
+const STATUS_OPTIONS: PresenceStatus[] = ["online", "away", "busy", "offline"];
+
+const STATUS_ICONS: Record<PresenceStatus, string> = {
+  online:  "radio-button-on",
+  away:    "time-outline",
+  busy:    "remove-circle-outline",
+  offline: "ellipse-outline",
+};
+
+const STATUS_DESC: Record<PresenceStatus, string> = {
+  online:  "Visível para todos",
+  away:    "Aparece como ausente",
+  busy:    "Não pertube",
+  offline: "Pareça desconectado",
+};
+
+function StatusModal({
+  visible,
+  onClose,
+  currentStatus,
+  onSelect,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  currentStatus: PresenceStatus;
+  onSelect: (s: PresenceStatus) => void;
+}) {
+  const { theme, isDark } = useThemeStore();
+  const insets     = useSafeAreaInsets();
+  const translateY = useRef(new Animated.Value(400)).current;
+
+  useEffect(() => {
+    Animated.spring(translateY, {
+      toValue: visible ? 0 : 400,
+      useNativeDriver: true,
+      damping: 22, stiffness: 220,
+    }).start();
+  }, [visible]);
+
+  if (!visible) return null;
+
+  return (
+    <Modal visible transparent animationType="none" statusBarTranslucent onRequestClose={onClose}>
+      <TouchableOpacity style={sm.backdrop} activeOpacity={1} onPress={onClose} />
+      <Animated.View
+        style={[sm.panel, { transform: [{ translateY }], paddingBottom: insets.bottom + 20 }]}
+      >
+        <BlurView intensity={96} tint={isDark ? "dark" : "light"} style={StyleSheet.absoluteFillObject} />
+
+        <View style={sm.handle} />
+
+        <View style={sm.header}>
+          <Text style={[sm.title, { color: theme.text }]}>Meu status</Text>
+          <TouchableOpacity onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+            <Ionicons name="close" size={22} color={theme.textSecondary} />
+          </TouchableOpacity>
+        </View>
+
+        <Text style={[sm.note, { color: theme.textSecondary }]}>
+          Seu status é visível para todos que te seguem.
+        </Text>
+
+        <View style={[sm.optionsCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+          {STATUS_OPTIONS.map((status, idx) => {
+            const isActive = currentStatus === status;
+            const isLast   = idx === STATUS_OPTIONS.length - 1;
+            return (
+              <TouchableOpacity
+                key={status}
+                style={[
+                  sm.optionRow,
+                  !isLast && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border },
+                  isActive && { backgroundColor: PRESENCE_COLORS[status] + "12" },
+                ]}
+                onPress={() => { onSelect(status); onClose(); }}
+                activeOpacity={0.7}
+              >
+                {/* Dot colorido */}
+                <View style={[sm.dot, { backgroundColor: PRESENCE_COLORS[status] }]} />
+
+                <View style={{ flex: 1 }}>
+                  <Text style={[sm.optionLabel, { color: theme.text }]}>
+                    {PRESENCE_LABELS[status]}
+                  </Text>
+                  <Text style={[sm.optionDesc, { color: theme.textSecondary }]}>
+                    {STATUS_DESC[status]}
+                  </Text>
+                </View>
+
+                {isActive && (
+                  <Ionicons name="checkmark-circle" size={20} color={PRESENCE_COLORS[status]} />
+                )}
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </Animated.View>
+    </Modal>
+  );
+}
+
+const sm = StyleSheet.create({
+  backdrop:     { ...StyleSheet.absoluteFillObject },
+  panel:        { position: "absolute", bottom: 0, left: 0, right: 0, borderTopLeftRadius: 28, borderTopRightRadius: 28, overflow: "hidden", paddingTop: 8 },
+  handle:       { width: 40, height: 4, borderRadius: 2, backgroundColor: "rgba(128,128,128,0.35)", alignSelf: "center", marginBottom: 16 },
+  header:       { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 20, marginBottom: 8 },
+  title:        { fontSize: 18, fontWeight: "800" },
+  note:         { fontSize: 12, paddingHorizontal: 20, marginBottom: 16, lineHeight: 18 },
+  optionsCard:  { marginHorizontal: 16, borderRadius: 16, borderWidth: 1, overflow: "hidden" },
+  optionRow:    { flexDirection: "row", alignItems: "center", gap: 14, paddingHorizontal: 16, paddingVertical: 14 },
+  dot:          { width: 12, height: 12, borderRadius: 6 },
+  optionLabel:  { fontSize: 15, fontWeight: "600" },
+  optionDesc:   { fontSize: 12, marginTop: 1 },
+});
+
+// ── PaletteModal ───────────────────────────────────────────────────────────────
 function PaletteModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const { theme, isDark, paletteId, setPaletteId, resetToDefault } = useThemeStore();
   const insets     = useSafeAreaInsets();
@@ -90,12 +207,10 @@ function PaletteModal({ visible, onClose }: { visible: boolean; onClose: () => v
     },
   });
 
-  const combinedY  = Animated.add(translateY, panY);
+  const combinedY     = Animated.add(translateY, panY);
   const darkPalettes  = ALL_PALETTES.filter(p => p.isDark);
   const lightPalettes = ALL_PALETTES.filter(p => !p.isDark);
-  const filtered = filter === "dark"  ? darkPalettes
-                 : filter === "light" ? lightPalettes
-                 : ALL_PALETTES;
+  const filtered      = filter === "dark" ? darkPalettes : filter === "light" ? lightPalettes : ALL_PALETTES;
 
   if (!visible) return null;
 
@@ -108,10 +223,8 @@ function PaletteModal({ visible, onClose }: { visible: boolean; onClose: () => v
         {...panResponder.panHandlers}
       >
         <BlurView intensity={96} tint={isDark ? "dark" : "light"} style={StyleSheet.absoluteFillObject} />
-
         <View style={pm.handle} />
 
-        {/* Cabeçalho */}
         <View style={pm.header}>
           <View>
             <Text style={[pm.title, { color: theme.text }]}>Paleta de cores</Text>
@@ -124,7 +237,6 @@ function PaletteModal({ visible, onClose }: { visible: boolean; onClose: () => v
           </TouchableOpacity>
         </View>
 
-        {/* Filtro dark / light / all */}
         <View style={pm.filterRow}>
           {(["all", "dark", "light"] as const).map(f => (
             <TouchableOpacity
@@ -140,7 +252,6 @@ function PaletteModal({ visible, onClose }: { visible: boolean; onClose: () => v
           ))}
         </View>
 
-        {/* Botão restaurar padrão */}
         <TouchableOpacity
           style={[pm.resetBtn, { borderColor: theme.border, backgroundColor: theme.surface + "80" }]}
           onPress={() => { resetToDefault(); }}
@@ -150,12 +261,7 @@ function PaletteModal({ visible, onClose }: { visible: boolean; onClose: () => v
           <Text style={[pm.resetText, { color: theme.textSecondary }]}>Restaurar Padrão</Text>
         </TouchableOpacity>
 
-        {/* Grade de paletas */}
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={pm.grid}
-          bounces={false}
-        >
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={pm.grid} bounces={false}>
           {filtered.map(entry => {
             const p        = entry.theme;
             const isActive = paletteId === entry.paletteId;
@@ -164,28 +270,19 @@ function PaletteModal({ visible, onClose }: { visible: boolean; onClose: () => v
             return (
               <TouchableOpacity
                 key={entry.paletteId}
-                style={[
-                  pm.card,
-                  { borderColor: isActive ? p.primary : "transparent" },
-                  isActive && { borderWidth: 2.5 },
-                ]}
+                style={[pm.card, { borderColor: isActive ? p.primary : "transparent" }, isActive && { borderWidth: 2.5 }]}
                 onPress={() => { setPaletteId(entry.paletteId); }}
                 activeOpacity={0.8}
               >
-                {/* Preview: gradiente das cores da paleta */}
                 <LinearGradient
                   colors={[p.background, p.surface, p.surfaceHigh]}
                   style={pm.preview}
                   start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
                 >
-                  {/* Dot da cor primária */}
                   <View style={[pm.primaryDot, { backgroundColor: p.primary }]} />
-
-                  {/* Badge dark/light */}
                   <View style={[pm.modeBadge, { backgroundColor: "rgba(0,0,0,0.35)" }]}>
                     <Text style={pm.modeBadgeText}>{entry.isDark ? "🌙" : "☀️"}</Text>
                   </View>
-
                   {isDefault && (
                     <View style={[pm.defaultBadge, { backgroundColor: p.primary + "CC" }]}>
                       <Text style={pm.defaultText}>DEFAULT</Text>
@@ -193,15 +290,11 @@ function PaletteModal({ visible, onClose }: { visible: boolean; onClose: () => v
                   )}
                 </LinearGradient>
 
-                {/* Nome */}
                 <View style={[pm.cardLabel, { backgroundColor: p.surface }]}>
-                  <Text style={[pm.cardName, { color: p.text }]} numberOfLines={1}>
-                    {entry.label}
-                  </Text>
+                  <Text style={[pm.cardName, { color: p.text }]} numberOfLines={1}>{entry.label}</Text>
                   <View style={[pm.accentDot, { backgroundColor: p.primary }]} />
                 </View>
 
-                {/* Check se ativa */}
                 {isActive && (
                   <View style={[pm.checkBadge, { backgroundColor: p.primary }]}>
                     <Ionicons name="checkmark" size={11} color="#fff" />
@@ -218,11 +311,7 @@ function PaletteModal({ visible, onClose }: { visible: boolean; onClose: () => v
 
 const pm = StyleSheet.create({
   backdrop:      { ...StyleSheet.absoluteFillObject },
-  panel:         {
-    position: "absolute", bottom: 0, left: 0, right: 0,
-    height: PANEL_H, borderTopLeftRadius: 28, borderTopRightRadius: 28,
-    overflow: "hidden", paddingTop: 8,
-  },
+  panel:         { position: "absolute", bottom: 0, left: 0, right: 0, height: PANEL_H, borderTopLeftRadius: 28, borderTopRightRadius: 28, overflow: "hidden", paddingTop: 8 },
   handle:        { width: 40, height: 4, borderRadius: 2, backgroundColor: "rgba(128,128,128,0.35)", alignSelf: "center", marginBottom: 14 },
   header:        { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", paddingHorizontal: 20, marginBottom: 10 },
   title:         { fontSize: 18, fontWeight: "800" },
@@ -327,11 +416,20 @@ export default function SettingsScreen({ navigation }: any) {
   const [termsVisible,    setTermsVisible]    = useState(false);
   const [paletteVisible,  setPaletteVisible]  = useState(false);
   const [languageVisible, setLanguageVisible] = useState(false);
+  const [statusVisible,   setStatusVisible]   = useState(false);
   const [isPrivate,       setIsPrivate]       = useState(user?.isPrivate || false);
   const [showLikes,       setShowLikes]       = useState((user as any)?.showLikesCount ?? true);
+  const [myStatus,        setMyStatus]        = useState<PresenceStatus>(
+    presenceService.getStatus()
+  );
 
   const currentPaletteName = ALL_PALETTES.find(p => p.paletteId === paletteId)?.label || "Midnight";
   const currentLocaleName  = LOCALE_LABELS[locale] || "Português (Brasil)";
+
+  const handleStatusSelect = useCallback(async (status: PresenceStatus) => {
+    setMyStatus(status);
+    await presenceService.setStatus(status);
+  }, []);
 
   const handleLogout = useCallback(() => {
     Alert.alert("Sair da conta", "Tem certeza que deseja sair?", [
@@ -350,6 +448,16 @@ export default function SettingsScreen({ navigation }: any) {
       ]
     );
   }, []);
+
+  // Indicador visual do status atual (dot colorido inline)
+  const StatusIndicator = () => (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: PRESENCE_COLORS[myStatus] }} />
+      <Text style={{ fontSize: 12, color: PRESENCE_COLORS[myStatus], fontWeight: "600" }}>
+        {PRESENCE_LABELS[myStatus]}
+      </Text>
+    </View>
+  );
 
   return (
     <View style={[s.root, { backgroundColor: theme.background }]}>
@@ -371,7 +479,13 @@ export default function SettingsScreen({ navigation }: any) {
           onPress={() => navigation?.navigate?.("EditProfile")}
           activeOpacity={0.7}
         >
-          <Avatar uri={user?.avatarUrl} name={user?.displayName || user?.username} size={52} ring="default" />
+          <Avatar
+            uri={user?.avatarUrl}
+            name={user?.displayName || user?.username}
+            size={52}
+            ring="default"
+            presenceStatus={myStatus}
+          />
           <View style={s.profileInfo}>
             <Text style={[s.profileName, { color: theme.text }]}>{user?.displayName || user?.username}</Text>
             <Text style={[s.profileHandle, { color: theme.textSecondary }]}>@{user?.username} · Editar perfil</Text>
@@ -397,6 +511,19 @@ export default function SettingsScreen({ navigation }: any) {
             label="Paleta de cores"
             sub={currentPaletteName}
             onPress={() => setPaletteVisible(true)}
+            last
+          />
+        </Section>
+
+        {/* Presença */}
+        <Section title="PRESENÇA">
+          <SettingRow
+            icon="radio-button-on-outline"
+            iconColor={PRESENCE_COLORS[myStatus]}
+            label="Meu status"
+            sub={PRESENCE_LABELS[myStatus]}
+            right={<StatusIndicator />}
+            onPress={() => setStatusVisible(true)}
             last
           />
         </Section>
@@ -479,6 +606,12 @@ export default function SettingsScreen({ navigation }: any) {
       <TermsModal visible={termsVisible} onAccept={() => setTermsVisible(false)} onDecline={() => setTermsVisible(false)} />
       <PaletteModal visible={paletteVisible} onClose={() => setPaletteVisible(false)} />
       <LanguageModal visible={languageVisible} onClose={() => setLanguageVisible(false)} />
+      <StatusModal
+        visible={statusVisible}
+        onClose={() => setStatusVisible(false)}
+        currentStatus={myStatus}
+        onSelect={handleStatusSelect}
+      />
     </View>
   );
 }

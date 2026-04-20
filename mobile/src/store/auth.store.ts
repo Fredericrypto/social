@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { authService } from "../services/auth.service";
+import { presenceService } from "../services/presence.service";
 
 interface User {
   id: string;
@@ -56,6 +57,9 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   logout: async () => {
+    // Vai offline ANTES de apagar o token — garante que o PATCH /users/me
+    // ainda tem autenticação válida para chegar ao backend
+    await presenceService.goOffline();
     await authService.logout();
     set({ user: null, isAuthenticated: false });
   },

@@ -12,6 +12,8 @@ import { useFocusEffect } from "@react-navigation/native";
 import { useThemeStore } from "../../store/theme.store";
 import { useAuthStore } from "../../store/auth.store";
 import { api } from "../../services/api";
+import { socketService } from "../../services/socket.service";
+import { PresenceStatus } from "../../services/presence.service";
 import Avatar from "../../components/ui/Avatar";
 
 const { width: SW } = Dimensions.get("window");
@@ -19,7 +21,7 @@ const DELETE_THRESHOLD = -80;
 
 // ─── SwipeableConvRow ─────────────────────────────────────────────────────────
 function SwipeableConvRow({
-  item, other, theme, onPress, onDelete,
+  item, other, theme, onPress, onDelete, presenceMap,
 }: any) {
   const translateX = useRef(new Animated.Value(0)).current;
   const lastMsg    = item.lastMessage;
@@ -28,6 +30,11 @@ function SwipeableConvRow({
     : null;
   const hasUnread  = (item.unreadCount ?? 0) > 0;
 
+  // Status de presença do outro participante
+  const otherPresence: PresenceStatus | null = other?.id
+    ? (presenceMap[other.id] ?? null)
+    : null;
+
   const panResponder = useRef(PanResponder.create({
     onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 8 && Math.abs(g.dy) < 20,
     onPanResponderMove: (_, g) => {
@@ -35,7 +42,6 @@ function SwipeableConvRow({
     },
     onPanResponderRelease: (_, g) => {
       if (g.dx < DELETE_THRESHOLD) {
-        // Reveal delete
         Animated.spring(translateX, { toValue: -80, useNativeDriver: true }).start();
       } else {
         Animated.spring(translateX, { toValue: 0, useNativeDriver: true, friction: 6 }).start();
@@ -43,7 +49,6 @@ function SwipeableConvRow({
     },
   })).current;
 
-  // Fecha o swipe imediatamente (sem animação) ao montar — evita glitch
   React.useEffect(() => { translateX.setValue(0); }, []);
 
   const closeSwipe = () =>
@@ -71,9 +76,13 @@ function SwipeableConvRow({
           onPress={() => { closeSwipe(); onPress(item, other); }}
           activeOpacity={0.8}
         >
-          <View style={{ position: "relative" }}>
-            <Avatar uri={other?.avatarUrl} name={other?.displayName || other?.username} size={52} />
-          </View>
+          {/* Avatar com dot de presença */}
+          <Avatar
+            uri={other?.avatarUrl}
+            name={other?.displayName || other?.username}
+            size={52}
+            presenceStatus={otherPresence}
+          />
 
           <View style={cr.info}>
             <View style={cr.top}>
@@ -129,21 +138,58 @@ export default function MessagesScreen({ navigation }: any) {
   const [conversations, setConversations] = useState<any[]>([]);
   const [loading,       setLoading]       = useState(true);
   const [refreshing,    setRefreshing]    = useState(false);
+  // Mapa userId → PresenceStatus, atualizado em tempo real via socket
+  const [presenceMap,   setPresenceMap]   = useState<Record<string, PresenceStatus>>({});
 
   const load = useCallback(async () => {
     try {
       const { data } = await api.get("/messages/conversations");
-      setConversations(Array.isArray(data) ? data : []);
+      const convs = Array.isArray(data) ? data : [];
+      setConversations(convs);
+
+      // Busca status inicial de todos os participantes de uma vez
+      const otherIds = convs.map((c: any) =>
+        c.participantAId === user?.id ? c.participantB?.id : c.participantA?.id
+      ).filter(Boolean);
+
+      if (otherIds.length > 0) {
+        try {
+          const { data: presences } = await api.get("/users/presence", {
+            params: { ids: otherIds.join(",") },
+          });
+          // Espera array: [{ userId, status }]
+          if (Array.isArray(presences)) {
+            const map: Record<string, PresenceStatus> = {};
+            presences.forEach((p: any) => { if (p.userId) map[p.userId] = p.status; });
+            setPresenceMap(map);
+          }
+        } catch {
+          // Endpoint de presença em batch pode não existir ainda — ignora silenciosamente
+        }
+      }
     } catch {
       setConversations([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [user?.id]);
 
-  // Recarrega sempre que a tela ganha foco (volta do chat)
+  // Recarrega ao focar
   useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  // Escuta atualizações de presença em tempo real via socket
+  useEffect(() => {
+    const socket = socketService.connect();
+    if (!socket) return;
+
+    const handler = ({ userId, status }: { userId: string; status: PresenceStatus }) => {
+      setPresenceMap(prev => ({ ...prev, [userId]: status }));
+    };
+
+    socket.on("presence:update", handler);
+    return () => { socket.off("presence:update", handler); };
+  }, []);
 
   const getOther = (conv: any) =>
     conv.participantAId === user?.id ? conv.participantB : conv.participantA;
@@ -166,7 +212,6 @@ export default function MessagesScreen({ navigation }: any) {
             try {
               await api.delete(`/messages/conversations/${conv.id}`);
             } catch {
-              // Reverter se falhar
               load();
             }
           },
@@ -203,7 +248,6 @@ export default function MessagesScreen({ navigation }: any) {
       </View>
 
       {loading ? (
-        // Skeleton
         <View style={{ padding: 16, gap: 16 }}>
           {[1, 2, 3, 4].map(i => (
             <View key={i} style={{ flexDirection: "row", gap: 12, alignItems: "center" }}>
@@ -235,6 +279,7 @@ export default function MessagesScreen({ navigation }: any) {
                 theme={theme}
                 onPress={handleOpen}
                 onDelete={handleDelete}
+                presenceMap={presenceMap}
               />
             );
           }}

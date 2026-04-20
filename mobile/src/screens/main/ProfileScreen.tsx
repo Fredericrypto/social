@@ -29,6 +29,7 @@ import { useThemeStore } from "../../store/theme.store";
 import { api } from "../../services/api";
 import { savedService } from "../../services/saved.service";
 import Avatar from "../../components/ui/Avatar";
+import { presenceService } from "../../services/presence.service";
 import EarlyAdopterBadge from "../../components/ui/EarlyAdopterBadge";
 import ProjectCard from "../../components/ui/ProjectCard";
 import { RichText } from "../../components/ui/RichText";
@@ -310,6 +311,7 @@ export default function ProfileScreen({ navigation }: any) {
             name={user?.displayName || user?.username}
             size={86}
             ring={hasStories ? "active" : "default"}
+          presenceStatus={presenceService.getStatus()}
           />
         </TouchableOpacity>
 

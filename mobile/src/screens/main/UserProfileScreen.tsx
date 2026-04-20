@@ -326,7 +326,8 @@ export default function UserProfileScreen({ route, navigation }: any) {
           name={userData?.displayName || userData?.username}
           size={86}
           ring={hasStories ? "active" : "default"}
-        />
+        presenceStatus={(userData as any)?.presenceStatus ?? null}
+          />
         <View style={s.statsRow}>
           <View style={s.statItem}>
             <Text style={[s.statValue, { color: theme.text }]}>

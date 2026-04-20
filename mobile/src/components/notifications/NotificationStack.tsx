@@ -131,7 +131,7 @@ export default function NotificationStack({ group, onDelete, onNavigate }: Props
           onPress={() => actor.username && onNavigate("profile", actor.username)}
           activeOpacity={0.8}
         >
-          <Avatar uri={actor.avatarUrl} name={name} size={34} />
+          <Avatar uri={actor.avatarUrl} name={name} size={34} presenceStatus={(actor as any)?.presenceStatus ?? null} />
           <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={[n.actorName, { color: theme.text }]} numberOfLines={1}>
               @{actor.username}

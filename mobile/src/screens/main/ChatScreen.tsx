@@ -15,6 +15,7 @@ import { useThemeStore } from '../../store/theme.store';
 import { useAuthStore } from '../../store/auth.store';
 import { api } from '../../services/api';
 import { socketService } from '../../services/socket.service';
+import { PresenceStatus, PRESENCE_COLORS, PRESENCE_LABELS } from '../../services/presence.service';
 import Avatar from '../../components/ui/Avatar';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -67,7 +68,6 @@ function MessageBubble({
   const handleTap = () => {
     const now = Date.now();
     if (now - lastTap.current < 300) {
-      // Double tap — reagir com ❤️
       onDoubleTap(msg);
       Animated.sequence([
         Animated.spring(scaleAnim, { toValue: 1.08, useNativeDriver: true, speed: 50 }),
@@ -92,7 +92,6 @@ function MessageBubble({
 
   return (
     <View style={[b.row, isMe ? b.rowMe : b.rowOther]}>
-      {/* Avatar do outro (agrupa mensagens consecutivas) */}
       {!isMe && (
         <View style={{ width: 28, alignSelf: 'flex-end', marginBottom: msg.reaction ? 16 : 0 }}>
           {showAvatar ? (
@@ -125,14 +124,12 @@ function MessageBubble({
           </TouchableOpacity>
         </Animated.View>
 
-        {/* Reaction badge */}
         {msg.reaction && (
           <View style={[b.reactionBadge, isMe ? b.reactionBadgeMe : b.reactionBadgeOther]}>
             <Text style={b.reactionEmoji}>{msg.reaction}</Text>
           </View>
         )}
 
-        {/* Timestamp + read receipt */}
         <View style={[b.meta, isMe ? b.metaMe : b.metaOther]}>
           <Text style={[b.time, { color: theme.textTertiary }]}>
             {formatMsgTime(msg.createdAt)}
@@ -179,13 +176,13 @@ export default function ChatScreen({ route, navigation }: any) {
   const { user }          = useAuthStore();
   const insets            = useSafeAreaInsets();
 
-  const [messages,     setMessages]     = useState<Message[]>([]);
-  const [input,        setInput]        = useState('');
-  const [otherTyping,  setOtherTyping]  = useState(false);
-  const [loading,      setLoading]      = useState(true);
-  // Modal de ações na mensagem
-  const [selectedMsg,  setSelectedMsg]  = useState<Message | null>(null);
-  const [reactionModal, setReactionModal] = useState(false);
+  const [messages,       setMessages]       = useState<Message[]>([]);
+  const [input,          setInput]          = useState('');
+  const [otherTyping,    setOtherTyping]    = useState(false);
+  const [loading,        setLoading]        = useState(true);
+  const [otherPresence,  setOtherPresence]  = useState<PresenceStatus | null>(null);
+  const [selectedMsg,    setSelectedMsg]    = useState<Message | null>(null);
+  const [reactionModal,  setReactionModal]  = useState(false);
 
   const flatRef      = useRef<FlatList>(null);
   const typingTimer  = useRef<any>(null);
@@ -200,6 +197,16 @@ export default function ChatScreen({ route, navigation }: any) {
     } catch {}
     finally { setLoading(false); }
   }, [conversation.id]);
+
+  // ── Buscar presença inicial do outro usuário ───────────────────────────
+  useEffect(() => {
+    if (!other?.id) return;
+    api.get(`/users/${other.username || other.id}/presence`)
+      .then(({ data }) => {
+        if (data?.status) setOtherPresence(data.status as PresenceStatus);
+      })
+      .catch(() => {});
+  }, [other?.id]);
 
   // ── Socket ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -217,12 +224,19 @@ export default function ChatScreen({ route, navigation }: any) {
 
     socket.on('user_typing', ({ isTyping: t }: any) => setOtherTyping(t));
 
+    // Presença em tempo real
+    const handlePresence = ({ userId, status }: { userId: string; status: PresenceStatus }) => {
+      if (userId === other?.id) setOtherPresence(status);
+    };
+    socket.on('presence:update', handlePresence);
+
     return () => {
       socket.emit('leave_room', { conversationId: conversation.id });
       unsubMsg();
       socket.off('user_typing');
+      socket.off('presence:update', handlePresence);
     };
-  }, [conversation.id, loadMessages]);
+  }, [conversation.id, loadMessages, other?.id]);
 
   // ── Enviar mensagem ────────────────────────────────────────────────────
   const handleSend = useCallback(async () => {
@@ -230,7 +244,6 @@ export default function ChatScreen({ route, navigation }: any) {
     if (!content) return;
     setInput('');
 
-    // Optimistic
     const tempMsg: Message = {
       id:        `temp-${Date.now()}`,
       senderId:  user?.id || '',
@@ -269,14 +282,11 @@ export default function ChatScreen({ route, navigation }: any) {
     }, 1500);
   };
 
-  // ── Double tap — react ❤️ ──────────────────────────────────────────────
   const handleDoubleTap = useCallback((msg: Message) => {
     const newReaction = msg.reaction === '❤️' ? null : '❤️';
     setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, reaction: newReaction } : m));
-    // Opcional: persistir reação via API
   }, []);
 
-  // ── Long press — menu de ações ─────────────────────────────────────────
   const handleLongPress = useCallback((msg: Message) => {
     setSelectedMsg(msg);
     setReactionModal(true);
@@ -297,10 +307,8 @@ export default function ChatScreen({ route, navigation }: any) {
     ));
     setReactionModal(false);
     setSelectedMsg(null);
-    // api.delete(`/messages/${selectedMsg.id}?forEveryone=${forEveryone}`)
   };
 
-  // ── Render ─────────────────────────────────────────────────────────────
   const isMe = (msg: Message) => msg.senderId === user?.id;
 
   const renderItem = useCallback(({ item, index }: { item: Message; index: number }) => {
@@ -330,6 +338,22 @@ export default function ChatScreen({ route, navigation }: any) {
     );
   }, [messages, other, theme, handleLongPress, handleDoubleTap]);
 
+  // ── Subtítulo do header: presença > typing > @username ─────────────────
+  const headerSubtitle = useMemo(() => {
+    if (otherTyping) return null; // handled separately
+    if (otherPresence && otherPresence !== 'offline') {
+      return (
+        <View style={t.presenceRow}>
+          <View style={[t.presenceDot, { backgroundColor: PRESENCE_COLORS[otherPresence] }]} />
+          <Text style={[t.headerSub, { color: PRESENCE_COLORS[otherPresence] }]}>
+            {PRESENCE_LABELS[otherPresence]}
+          </Text>
+        </View>
+      );
+    }
+    return <Text style={[t.headerSub, { color: theme.textTertiary }]}>@{other?.username}</Text>;
+  }, [otherTyping, otherPresence, other?.username, theme]);
+
   return (
     <View style={[t.root, { backgroundColor: theme.background }]}>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} translucent backgroundColor="transparent" />
@@ -345,7 +369,13 @@ export default function ChatScreen({ route, navigation }: any) {
           onPress={() => other?.username && navigation.navigate('UserProfile', { username: other.username })}
           activeOpacity={0.8}
         >
-          <Avatar uri={other?.avatarUrl} name={other?.displayName || other?.username} size={36} />
+          {/* Avatar com dot de presença */}
+          <Avatar
+            uri={other?.avatarUrl}
+            name={other?.displayName || other?.username}
+            size={36}
+            presenceStatus={otherPresence}
+          />
           <View>
             <Text style={[t.headerName, { color: theme.text }]}>
               {other?.displayName || other?.username}
@@ -353,7 +383,7 @@ export default function ChatScreen({ route, navigation }: any) {
             {otherTyping ? (
               <Text style={[t.typingText, { color: theme.primary }]}>digitando...</Text>
             ) : (
-              <Text style={[t.headerSub, { color: theme.textTertiary }]}>@{other?.username}</Text>
+              headerSubtitle
             )}
           </View>
         </TouchableOpacity>
@@ -432,8 +462,6 @@ export default function ChatScreen({ route, navigation }: any) {
       >
         <Pressable style={t.modalBackdrop} onPress={() => { setReactionModal(false); setSelectedMsg(null); }}>
           <Pressable style={[t.modalCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-
-            {/* Reações */}
             <View style={t.reactionsRow}>
               {REACTIONS.map(emoji => (
                 <TouchableOpacity
@@ -448,8 +476,7 @@ export default function ChatScreen({ route, navigation }: any) {
 
             <View style={[t.modalDivider, { backgroundColor: theme.border }]} />
 
-            {/* Ações */}
-            <TouchableOpacity style={t.actionRow} onPress={() => { /* copy */ setReactionModal(false); }}>
+            <TouchableOpacity style={t.actionRow} onPress={() => { setReactionModal(false); }}>
               <Ionicons name="copy-outline" size={18} color={theme.text} />
               <Text style={[t.actionText, { color: theme.text }]}>Copiar</Text>
             </TouchableOpacity>
@@ -466,7 +493,6 @@ export default function ChatScreen({ route, navigation }: any) {
                 </TouchableOpacity>
               </>
             )}
-
           </Pressable>
         </Pressable>
       </Modal>
@@ -482,6 +508,8 @@ const t = StyleSheet.create({
   headerName:    { fontSize: 15, fontWeight: '700' },
   headerSub:     { fontSize: 11, marginTop: 1 },
   typingText:    { fontSize: 11, marginTop: 1 },
+  presenceRow:   { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 1 },
+  presenceDot:   { width: 6, height: 6, borderRadius: 3 },
   headerBtn:     { width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   dayDivider:    { alignItems: 'center', paddingVertical: 12 },
   dayText:       { fontSize: 11, fontWeight: '600' },
