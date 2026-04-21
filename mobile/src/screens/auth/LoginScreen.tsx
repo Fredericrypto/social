@@ -1,21 +1,22 @@
 import React, { useState, useCallback } from "react";
 import {
-  View, Text, TouchableOpacity, StyleSheet, Alert,
-  KeyboardAvoidingView, Platform, Dimensions, StatusBar,
-  ScrollView, TextInput,
+  View, Text, TouchableOpacity, StyleSheet,
+  KeyboardAvoidingView, Platform, ScrollView,
+  TextInput, StatusBar, Alert, ActivityIndicator,
 } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
+import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuthStore } from "../../store/auth.store";
-import PrimaryButton from "../../components/ui/PrimaryButton";
 
-// Cores FIXAS dark — login nunca muda com o tema do app
 const C = {
-  bg:          "#0A0A0F",
-  surface:     "#13131A",
-  border:      "rgba(255,255,255,0.07)",
-  text:        "#F0F0F5",
-  textSec:     "rgba(240,240,245,0.5)",
-  primaryLight:"#A78BFA",
+  bg:      "#0D1018",
+  surface: "rgba(255,255,255,0.05)",
+  border:  "rgba(255,255,255,0.08)",
+  text:    "#F1F5F9",
+  textSec: "rgba(241,245,249,0.45)",
+  primary: "#64748B",
+  btnBg:   "#F1F5F9",
+  btnText: "#0D1018",
 };
 
 export default function LoginScreen({ navigation }: any) {
@@ -24,6 +25,7 @@ export default function LoginScreen({ navigation }: any) {
   const [showPass, setShowPass] = useState(false);
   const [loading,  setLoading]  = useState(false);
   const { login } = useAuthStore();
+  const insets = useSafeAreaInsets();
 
   const handleLogin = useCallback(async () => {
     const trimEmail = email.trim().toLowerCase();
@@ -40,7 +42,7 @@ export default function LoginScreen({ navigation }: any) {
       if (status === 401 || status === 404) {
         Alert.alert("Credenciais inválidas", "Email ou senha incorretos");
       } else if (!status) {
-        Alert.alert("Sem conexão", "Verifique se o servidor está rodando e tente novamente");
+        Alert.alert("Sem conexão", "Verifique sua internet e tente novamente");
       } else {
         Alert.alert("Erro", msg || "Tente novamente");
       }
@@ -50,42 +52,30 @@ export default function LoginScreen({ navigation }: any) {
   }, [email, password]);
 
   return (
-    <View style={styles.root}>
+    <View style={[s.root, { paddingBottom: insets.bottom }]}>
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
-      <LinearGradient
-        colors={["#1a0533", "#0f1a3a", C.bg]}
-        style={StyleSheet.absoluteFillObject}
-        start={{ x: 0.3, y: 0 }} end={{ x: 0.7, y: 0.6 }}
-      />
-      <View style={styles.glow} />
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
       >
+        {/* Conteúdo scrollável */}
         <ScrollView
-          contentContainerStyle={styles.scroll}
+          contentContainerStyle={s.scroll}
           keyboardShouldPersistTaps="always"
           showsVerticalScrollIndicator={false}
           bounces={false}
         >
-          {/* Logo */}
-          <View style={styles.logoArea}>
-            <LinearGradient colors={["#7C3AED", "#6D28D9"]} style={styles.logoBox} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
-              <Text style={styles.logoGlyph}>◈</Text>
-            </LinearGradient>
-            <Text style={styles.appName}>Rede</Text>
-            <Text style={styles.tagline}>Conecte-se com quem importa</Text>
+          <View style={s.heading}>
+            <Text style={s.title}>{`Let's sign\nyou in.`}</Text>
+            <Text style={s.sub}>{`Welcome back.\nYou've been missed!`}</Text>
           </View>
 
-          {/* Form */}
-          <View style={styles.form}>
-            <View style={styles.field}>
-              <Text style={styles.fieldIcon}>✉</Text>
+          <View style={s.form}>
+            <View style={s.field}>
               <TextInput
-                style={styles.fieldInput}
-                placeholder="Email"
+                style={s.input}
+                placeholder="Phone, email or username"
                 placeholderTextColor={C.textSec}
                 value={email}
                 onChangeText={setEmail}
@@ -95,15 +85,13 @@ export default function LoginScreen({ navigation }: any) {
                 returnKeyType="next"
                 textContentType="emailAddress"
                 underlineColorAndroid="transparent"
-                blurOnSubmit={false}
               />
             </View>
 
-            <View style={styles.field}>
-              <Text style={styles.fieldIcon}>🔒</Text>
+            <View style={s.field}>
               <TextInput
-                style={styles.fieldInput}
-                placeholder="Senha"
+                style={[s.input, { flex: 1 }]}
+                placeholder="Password"
                 placeholderTextColor={C.textSec}
                 value={password}
                 onChangeText={setPassword}
@@ -112,58 +100,52 @@ export default function LoginScreen({ navigation }: any) {
                 onSubmitEditing={handleLogin}
                 textContentType="password"
                 underlineColorAndroid="transparent"
-                blurOnSubmit={false}
               />
               <TouchableOpacity onPress={() => setShowPass(v => !v)} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-                <Text style={styles.toggle}>{showPass ? "OCULTAR" : "MOSTRAR"}</Text>
-              </TouchableOpacity>
-            </View>
-
-            <TouchableOpacity style={styles.forgotRow}>
-              <Text style={styles.forgot}>Esqueceu a senha?</Text>
-            </TouchableOpacity>
-
-            <PrimaryButton label="Entrar" onPress={handleLogin} loading={loading} />
-
-            <View style={styles.divider}>
-              <View style={styles.line} />
-              <Text style={styles.orText}>ou</Text>
-              <View style={styles.line} />
-            </View>
-
-            <View style={styles.registerRow}>
-              <Text style={styles.registerText}>Não tem conta? </Text>
-              <TouchableOpacity onPress={() => navigation.navigate("Register")}>
-                <Text style={styles.registerLink}>Criar agora</Text>
+                <Ionicons name={showPass ? "eye-off-outline" : "eye-outline"} size={20} color={C.textSec} />
               </TouchableOpacity>
             </View>
           </View>
         </ScrollView>
+
+        {/* Footer dentro do KAV — sobe com teclado */}
+        <View style={s.footer}>
+          <Text style={s.noAccount}>
+            {`Don't have an account? `}
+            <Text style={s.registerLink} onPress={() => navigation.navigate("Register")}>
+              Register
+            </Text>
+          </Text>
+
+          <TouchableOpacity
+            style={[s.btn, loading && { opacity: 0.7 }]}
+            onPress={handleLogin}
+            activeOpacity={0.85}
+            disabled={loading}
+          >
+            {loading
+              ? <ActivityIndicator color={C.btnText} />
+              : <Text style={s.btnText}>Sign In</Text>
+            }
+          </TouchableOpacity>
+        </View>
       </KeyboardAvoidingView>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  root:       { flex: 1, backgroundColor: C.bg },
-  glow:       { position: "absolute", width: 300, height: 300, borderRadius: 150, backgroundColor: "#7C3AED", opacity: 0.06, top: -80, alignSelf: "center" },
-  scroll:     { flexGrow: 1, justifyContent: "center", paddingHorizontal: 28, paddingVertical: 60 },
-  logoArea:   { alignItems: "center", marginBottom: 48, gap: 10 },
-  logoBox:    { width: 72, height: 72, borderRadius: 22, alignItems: "center", justifyContent: "center" },
-  logoGlyph:  { fontSize: 34, color: "#fff" },
-  appName:    { fontSize: 32, fontWeight: "800", letterSpacing: -0.5, color: C.text },
-  tagline:    { fontSize: 14, color: C.textSec },
-  form:       { gap: 12 },
-  field:      { flexDirection: "row", alignItems: "center", borderRadius: 14, borderWidth: 1, paddingHorizontal: 16, height: 54, backgroundColor: C.surface, borderColor: C.border },
-  fieldIcon:  { fontSize: 16, marginRight: 10, opacity: 0.5 },
-  fieldInput: { flex: 1, fontSize: 15, height: "100%" as any, color: C.text },
-  toggle:     { fontSize: 11, fontWeight: "600", color: C.textSec },
-  forgotRow:  { alignItems: "flex-end", marginTop: -4 },
-  forgot:     { fontSize: 12, fontWeight: "600", color: C.primaryLight },
-  divider:    { flexDirection: "row", alignItems: "center", gap: 12, marginVertical: 4 },
-  line:       { flex: 1, height: 1, backgroundColor: C.border },
-  orText:     { fontSize: 12, color: C.textSec },
-  registerRow:  { flexDirection: "row", justifyContent: "center", alignItems: "center", marginTop: 4 },
-  registerText: { color: C.textSec, fontSize: 14 },
-  registerLink: { color: C.primaryLight, fontSize: 14, fontWeight: "700" },
+const s = StyleSheet.create({
+  root:         { flex: 1, backgroundColor: C.bg },
+  scroll:       { flexGrow: 1, paddingHorizontal: 28, paddingTop: 100, paddingBottom: 16 },
+  heading:      { marginBottom: 48 },
+  title:        { fontSize: 40, fontWeight: "800", color: C.text, letterSpacing: -1, lineHeight: 48, marginBottom: 14 },
+  sub:          { fontSize: 16, color: C.textSec, lineHeight: 24 },
+  form:         { gap: 12 },
+  field:        { flexDirection: "row", alignItems: "center", backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 14, paddingHorizontal: 18, height: 56 },
+  input:        { flex: 1, fontSize: 15, color: C.text, height: "100%" as any },
+  footer:       { paddingHorizontal: 28, paddingVertical: 16, gap: 14 },
+  noAccount:    { textAlign: "center", fontSize: 14, color: C.textSec },
+  registerLink: { color: C.text, fontWeight: "700" },
+  btn:          { backgroundColor: C.btnBg, borderRadius: 50, height: 56, alignItems: "center", justifyContent: "center" },
+  btnText:      { color: C.btnText, fontSize: 16, fontWeight: "700", letterSpacing: 0.2 },
 });
