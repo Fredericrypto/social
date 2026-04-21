@@ -1,13 +1,3 @@
-/**
- * NotificationStack v2
- *
- * Correções:
- * - Clique no CARD INTEIRO expande (sem seta separada)
- * - Ícone de tipo proporcional (preenchendo o espaço)
- * - Botão "Seguir de volta" APENAS na expansão individual ou grupos single-follow
- * - Suporte a uniqueActors e uniquePosts do helper v2
- */
-
 import React, { useState, useRef, useCallback } from "react";
 import {
   View, Text, StyleSheet, TouchableOpacity, Animated,
@@ -18,8 +8,9 @@ import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { useThemeStore } from "../../store/theme.store";
 import { useAuthStore } from "../../store/auth.store";
-import { api } from "../../services/api";
 import Avatar from "../../components/ui/Avatar";
+import FollowButton from "../../components/ui/FollowButton";
+import { useFollowStore } from "../../store/follow.store";
 import {
   NotificationGroup, RawNotification, NOTIF_CONFIG,
 } from "../../utils/notificationHelpers";
@@ -33,12 +24,11 @@ interface Props {
 const SWIPE_THRESHOLD = -80;
 
 export default function NotificationStack({ group, onDelete, onNavigate }: Props) {
-  const { theme }  = useThemeStore();
-  const { user }   = useAuthStore();
+  const { theme }   = useThemeStore();
+  const { user }    = useAuthStore();
+  const followStore = useFollowStore();
 
-  const [expanded,       setExpanded]       = useState(false);
-  const [followingIds,   setFollowingIds]   = useState<Set<string>>(new Set());
-  const [loadingIds,     setLoadingIds]     = useState<Set<string>>(new Set());
+  const [expanded, setExpanded] = useState(false);
 
   const translateX = useRef(new Animated.Value(0)).current;
   const expandAnim = useRef(new Animated.Value(0)).current;
@@ -47,7 +37,10 @@ export default function NotificationStack({ group, onDelete, onNavigate }: Props
   const isFollow = group.type === "follow";
   const hasMany  = group.notifications.length > 1 || (group.uniqueActors?.length || 0) > 1;
 
-  // ── Expand card inteiro ────────────────────────────────────────────────
+  // Para notificação de follow single — inicializa o estado no store
+  const singleActor = !hasMany ? (group.uniqueActors?.[0] || group.leadActor) : null;
+
+  // ── Expand ────────────────────────────────────────────────────────────
   const toggleExpand = useCallback(() => {
     const toValue = expanded ? 0 : 1;
     Animated.spring(expandAnim, {
@@ -83,28 +76,14 @@ export default function NotificationStack({ group, onDelete, onNavigate }: Props
     ]);
   };
 
-  // ── Follow / Unfollow individual ──────────────────────────────────────
-  const handleFollow = async (actorId: string) => {
-    if (!actorId || loadingIds.has(actorId)) return;
-    setLoadingIds(prev => new Set([...prev, actorId]));
-    const isFollowing = followingIds.has(actorId);
-    try {
-      if (isFollowing) {
-        await api.delete(`/follows/${actorId}`);
-        setFollowingIds(prev => { const s = new Set(prev); s.delete(actorId); return s; });
-      } else {
-        await api.post(`/follows/${actorId}`);
-        setFollowingIds(prev => new Set([...prev, actorId]));
-      }
-    } catch {}
-    finally {
-      setLoadingIds(prev => { const s = new Set(prev); s.delete(actorId); return s; });
-    }
-  };
+  // ── Altura animada da expansão (estilo Instagram) ─────────────────────
+  const actors    = group.uniqueActors || [];
+  const posts     = group.uniquePosts  || [];
+  const isSameActor = actors.length === 1 && !isFollow;
+  const expandItems = isSameActor ? posts : actors;
+  const itemH     = 64;
+  const contentH  = Math.max(expandItems.length, 1) * itemH + 8;
 
-  // ── Altura animada da expansão ────────────────────────────────────────
-  const itemH = 60;
-  const contentH = (group.uniqueActors?.length || group.notifications.length) * itemH;
   const expandedHeight = expandAnim.interpolate({
     inputRange: [0, 1], outputRange: [0, contentH],
   });
@@ -113,63 +92,46 @@ export default function NotificationStack({ group, onDelete, onNavigate }: Props
     addSuffix: true, locale: ptBR,
   });
 
-  // ── Item individual expandido ─────────────────────────────────────────
+  // ── Row de ator na expansão — estilo Instagram ────────────────────────
   const renderActorRow = (actor: RawNotification["actor"], index: number) => {
     if (!actor) return null;
-    const name      = actor.displayName || actor.username || "Alguém";
-    const isMe      = actor.id === user?.id;
-    const following = followingIds.has(actor.id || "");
-    const loading   = loadingIds.has(actor.id || "");
+    const isMe = actor.id === user?.id;
+    const isFollowing = followStore.states[actor.id ?? ""] ?? false;
 
     return (
-      <View
-        key={actor.id || index}
-        style={[n.actorRow, { borderTopColor: theme.border }]}
-      >
+      <View key={actor.id || index} style={[n.actorRow, { borderTopColor: theme.border }]}>
         <TouchableOpacity
           style={n.actorLeft}
           onPress={() => actor.username && onNavigate("profile", actor.username)}
           activeOpacity={0.8}
         >
-          <Avatar uri={actor.avatarUrl} name={name} size={34} presenceStatus={(actor as any)?.presenceStatus ?? null} />
+          <Avatar
+            uri={actor.avatarUrl}
+            name={actor.displayName || actor.username}
+            size={40}
+            presenceStatus={(actor as any)?.presenceStatus ?? null}
+          />
           <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={[n.actorName, { color: theme.text }]} numberOfLines={1}>
+              {actor.displayName || actor.username}
+            </Text>
+            <Text style={[n.actorHandle, { color: theme.textSecondary }]} numberOfLines={1}>
               @{actor.username}
             </Text>
-            {actor.displayName && (
-              <Text style={[n.actorDisplayName, { color: theme.textSecondary }]} numberOfLines={1}>
-                {actor.displayName}
-              </Text>
-            )}
           </View>
         </TouchableOpacity>
 
-        {/* Follow back — SÓ na expansão, SÓ se for follow */}
-        {isFollow && !isMe && (
-          <TouchableOpacity
-            style={[
-              n.followBtn,
-              following
-                ? { borderWidth: 1, borderColor: theme.border }
-                : { backgroundColor: theme.primary },
-            ]}
-            onPress={() => actor.id && handleFollow(actor.id)}
-            disabled={loading}
-            activeOpacity={0.8}
-          >
-            {loading
-              ? <ActivityIndicator size="small" color={following ? theme.textSecondary : "#fff"} />
-              : <Text style={[n.followBtnText, { color: following ? theme.textSecondary : "#fff" }]}>
-                  {following ? "Seguindo" : "Seguir"}
-                </Text>
-            }
-          </TouchableOpacity>
+        {isFollow && !isMe && actor.id && (
+          <FollowButton
+            isFollowing={isFollowing}
+            onPress={() => followStore.toggle(actor.id!)}
+            size="sm"
+          />
         )}
       </View>
     );
   };
 
-  // ── Render posts únicos (quando mesmo usuário curtiu vários) ──────────
   const renderPostRow = (post: RawNotification["post"], index: number) => {
     if (!post) return null;
     return (
@@ -194,15 +156,17 @@ export default function NotificationStack({ group, onDelete, onNavigate }: Props
     );
   };
 
-  // Decide o que mostrar na expansão
-  const isSameActor  = (group.uniqueActors?.length || 0) === 1;
-  const expandContent = isSameActor && !isFollow
-    ? (group.uniquePosts || []).map(renderPostRow)
-    : (group.uniqueActors || []).map(renderActorRow);
+  const expandContent = isSameActor
+    ? posts.map(renderPostRow)
+    : actors.map(renderActorRow);
+
+  // Follow single — mostra botão diretamente no card principal
+  const showInlineFollow = isFollow && !hasMany && singleActor && singleActor.id !== user?.id;
+  const inlineIsFollowing = followStore.states[singleActor?.id ?? ""] ?? false;
 
   return (
     <View style={n.wrapper}>
-      {/* Botão delete atrás */}
+      {/* Delete atrás */}
       <View style={n.deleteBack}>
         <TouchableOpacity style={n.deleteBtn} onPress={confirmDelete}>
           <Ionicons name="trash-outline" size={16} color="#fff" />
@@ -210,7 +174,6 @@ export default function NotificationStack({ group, onDelete, onNavigate }: Props
         </TouchableOpacity>
       </View>
 
-      {/* Card deslizável — clique no card inteiro expande */}
       <Animated.View
         style={[n.card, {
           backgroundColor: group.hasUnread ? theme.surface : theme.background,
@@ -224,12 +187,10 @@ export default function NotificationStack({ group, onDelete, onNavigate }: Props
           activeOpacity={hasMany ? 0.75 : 1}
           disabled={!hasMany}
         >
-          {/* Avatar empilhado */}
+          {/* Avatar stack */}
           <TouchableOpacity
             style={n.avatarStack}
-            onPress={() => {
-              if (group.leadActor?.username) onNavigate("profile", group.leadActor.username);
-            }}
+            onPress={() => group.leadActor?.username && onNavigate("profile", group.leadActor.username)}
             activeOpacity={0.8}
           >
             <Avatar
@@ -237,7 +198,6 @@ export default function NotificationStack({ group, onDelete, onNavigate }: Props
               name={group.leadActor?.displayName || group.leadActor?.username}
               size={46}
             />
-            {/* Segundo avatar empilhado */}
             {(group.uniqueActors?.length || 0) > 1 && group.uniqueActors![1] && (
               <View style={n.secondAvatar}>
                 <Avatar
@@ -247,7 +207,6 @@ export default function NotificationStack({ group, onDelete, onNavigate }: Props
                 />
               </View>
             )}
-            {/* Ícone de tipo — proporcional */}
             <View style={[n.typeIcon, { backgroundColor: cfg.color }]}>
               <Ionicons name={cfg.icon as any} size={12} color="#fff" />
             </View>
@@ -261,8 +220,8 @@ export default function NotificationStack({ group, onDelete, onNavigate }: Props
             <Text style={[n.time, { color: theme.textSecondary }]}>{timeAgo}</Text>
           </View>
 
-          {/* Thumbnail do post (só navega se não for expandível) */}
-          {group.post?.mediaUrls?.[0] && (
+          {/* Post thumbnail */}
+          {group.post?.mediaUrls?.[0] && !showInlineFollow && (
             <TouchableOpacity
               onPress={() => group.post?.id && onNavigate("post", group.post.id)}
               activeOpacity={0.8}
@@ -272,11 +231,20 @@ export default function NotificationStack({ group, onDelete, onNavigate }: Props
           )}
 
           {/* Dot não lido */}
-          {group.hasUnread && (
+          {group.hasUnread && !showInlineFollow && (
             <View style={[n.unreadDot, { backgroundColor: theme.primary }]} />
           )}
 
-          {/* Indicador expand (sutil — só chevron, sem botão separado) */}
+          {/* Botão seguir inline — follow single */}
+          {showInlineFollow && (
+            <FollowButton
+              isFollowing={inlineIsFollowing}
+              onPress={() => followStore.toggle(singleActor!.id!)}
+              size="sm"
+            />
+          )}
+
+          {/* Chevron expand */}
           {hasMany && (
             <Ionicons
               name={expanded ? "chevron-up" : "chevron-down"}
@@ -287,7 +255,7 @@ export default function NotificationStack({ group, onDelete, onNavigate }: Props
           )}
         </TouchableOpacity>
 
-        {/* Conteúdo expandido */}
+        {/* Cascata expandida — estilo Instagram */}
         {hasMany && (
           <Animated.View style={[n.expandedList, { maxHeight: expandedHeight, overflow: "hidden" }]}>
             {expandContent}
@@ -304,31 +272,27 @@ const n = StyleSheet.create({
   deleteBtn:  { alignItems: "center", gap: 4 },
   deleteTxt:  { color: "#fff", fontSize: 10, fontWeight: "600" },
 
-  card:       { paddingHorizontal: 16, paddingVertical: 13 },
-  mainRow:    { flexDirection: "row", alignItems: "center", gap: 12 },
+  card:     { paddingHorizontal: 16, paddingVertical: 13 },
+  mainRow:  { flexDirection: "row", alignItems: "center", gap: 12 },
 
   avatarStack:  { position: "relative", width: 50, height: 50 },
   secondAvatar: { position: "absolute", bottom: -6, right: -8, borderRadius: 12, borderWidth: 2, borderColor: "transparent" },
-  // Ícone proporcional — 20×20 com ícone 12px preenche bem
-  typeIcon:   { position: "absolute", bottom: -1, right: -1, width: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  typeIcon:     { position: "absolute", bottom: -1, right: -1, width: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center" },
 
-  content:    { flex: 1, minWidth: 0 },
-  summary:    { fontSize: 13, lineHeight: 19 },
-  time:       { fontSize: 11, marginTop: 2 },
+  content:  { flex: 1, minWidth: 0 },
+  summary:  { fontSize: 13, lineHeight: 19 },
+  time:     { fontSize: 11, marginTop: 2 },
 
   thumbnail:  { width: 44, height: 44, borderRadius: 8 },
   unreadDot:  { width: 7, height: 7, borderRadius: 4, marginLeft: 2 },
 
   expandedList: {},
 
-  // Rows na expansão
-  actorRow:        { flexDirection: "row", alignItems: "center", paddingVertical: 10, paddingHorizontal: 6, borderTopWidth: StyleSheet.hairlineWidth },
-  actorLeft:       { flex: 1, flexDirection: "row", alignItems: "center", gap: 10, minWidth: 0 },
-  actorName:       { fontSize: 13, fontWeight: "600" },
-  actorDisplayName:{ fontSize: 11, marginTop: 1 },
-
-  followBtn:     { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 16, minWidth: 80, alignItems: "center" },
-  followBtnText: { fontSize: 12, fontWeight: "700" },
+  // Rows na cascata
+  actorRow:    { flexDirection: "row", alignItems: "center", paddingVertical: 10, paddingHorizontal: 6, gap: 10, borderTopWidth: StyleSheet.hairlineWidth },
+  actorLeft:   { flex: 1, flexDirection: "row", alignItems: "center", gap: 10, minWidth: 0 },
+  actorName:   { fontSize: 13, fontWeight: "600" },
+  actorHandle: { fontSize: 11, marginTop: 1 },
 
   postRow:    { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10, paddingHorizontal: 6, borderTopWidth: StyleSheet.hairlineWidth },
   postThumb:  { width: 42, height: 42, borderRadius: 8 },
