@@ -112,7 +112,7 @@ export class UsersService {
       .from('follows', 'f')
       .where('f.followerId = :id', { id: requestingUserId })
       .getRawMany()
-      .then(rows => new Set(rows.map((r: any) => r.followingId)));
+      .then(rows => new Set(rows.map((r: any) => r.f_followingId ?? r.followingId)));
 
     return users.map(u => ({ ...u, isFollowing: followedIds.has(u.id) }));
   }
