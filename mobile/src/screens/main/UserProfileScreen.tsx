@@ -1,14 +1,5 @@
 /**
  * UserProfileScreen — Perfil de terceiros
- *
- * Layout 100% idêntico ao ProfileScreen próprio:
- * - FlatList única com ListHeaderComponent
- * - Bio livre sem rótulo, esquerda
- * - Trabalho/Website/Skills inline com ícones
- * - Botões com borda colorida do tema
- * - Botão DM ao lado do Follow (só para terceiros)
- * - Tabs minimalistas: dot 4px, ícones images/chatbubble
- * - Parallax + blur progressivo no top bar
  */
 
 import React, {
@@ -27,6 +18,9 @@ import { useAuthStore } from "../../store/auth.store";
 import { useThemeStore } from "../../store/theme.store";
 import { api } from "../../services/api";
 import Avatar from "../../components/ui/Avatar";
+import { useFollowStore } from "../../store/follow.store";
+import GlowButton from "../../components/ui/GlowButton";
+import FollowButton from "../../components/ui/FollowButton";
 import EarlyAdopterBadge from "../../components/ui/EarlyAdopterBadge";
 
 const { width } = Dimensions.get("window");
@@ -34,7 +28,6 @@ const GRID_SIZE = (width - 4) / 3;
 const TOPBAR_H  = 56;
 const TABS_H    = 46;
 
-// ─── Tipos ────────────────────────────────────────────────────────────────────
 interface UserData {
   id:              string;
   username:        string;
@@ -56,7 +49,6 @@ interface UserData {
   showEarlyAdopterBadge?:  boolean;
 }
 
-// ─── Tabs ─────────────────────────────────────────────────────────────────────
 type ProfileTab = "posts" | "thoughts" | "code" | "projects";
 const TABS: { key: ProfileTab; icon: string; iconFilled: string }[] = [
   { key: "posts",    icon: "images-outline",     iconFilled: "images"     },
@@ -65,16 +57,15 @@ const TABS: { key: ProfileTab; icon: string; iconFilled: string }[] = [
   { key: "projects", icon: "briefcase-outline",   iconFilled: "briefcase"  },
 ];
 
-// ─── Componente ───────────────────────────────────────────────────────────────
 export default function UserProfileScreen({ route, navigation }: any) {
   const { username } = route.params as { username: string };
 
   const { user: me }      = useAuthStore();
   const { isDark, theme } = useThemeStore();
+  const followStore       = useFollowStore();
   const insets            = useSafeAreaInsets();
   const glassBlur         = isDark ? "dark" : "light";
 
-  // ── Scroll / parallax / blur ──────────────────────────────────────────────
   const scrollY  = useRef(new Animated.Value(0)).current;
   const listRef  = useRef<FlatList>(null);
 
@@ -88,7 +79,6 @@ export default function UserProfileScreen({ route, navigation }: any) {
     inputRange: [0, 100], outputRange: [1, 0.3], extrapolate: "clamp",
   });
 
-  // ── Reset ao sair da tela ────────────────────────────────────────────────
   useFocusEffect(useCallback(() => {
     return () => {
       scrollY.setValue(0);
@@ -97,7 +87,6 @@ export default function UserProfileScreen({ route, navigation }: any) {
     };
   }, []));
 
-  // ── Data ──────────────────────────────────────────────────────────────────
   const [userData,      setUserData]      = useState<UserData | null>(null);
   const [posts,         setPosts]         = useState<any[]>([]);
   const [loading,       setLoading]       = useState(true);
@@ -116,15 +105,14 @@ export default function UserProfileScreen({ route, navigation }: any) {
         api.get(`/posts/user/${username}?limit=30`),
       ]);
       setUserData(profileRes.data);
+      followStore.set(profileRes.data.id, !!profileRes.data.isFollowing);
       setPosts(postsRes.data.posts || []);
       try {
         const sr = await api.get(`/stories/user/${username}`);
         setHasStories((sr.data?.stories?.length || 0) > 0);
       } catch { setHasStories(false); }
     } catch (e: any) {
-      if (e?.response?.status === 404) {
-        navigation.goBack();
-      }
+      if (e?.response?.status === 404) navigation.goBack();
     } finally {
       setLoading(false);
     }
@@ -132,81 +120,49 @@ export default function UserProfileScreen({ route, navigation }: any) {
 
   useEffect(() => { loadProfile(); }, [loadProfile]);
 
-  // ── Follow / Unfollow optimistic ─────────────────────────────────────────
+  // ── Follow — usa followStore global ──────────────────────────────────────
   const handleFollow = async () => {
     if (!userData?.id || followLoading) return;
-    const wasFollowing = userData.isFollowing;
+    const wasFollowing = followStore.states[userData.id] ?? !!userData.isFollowing;
     setUserData(prev => prev ? {
       ...prev,
-      isFollowing:    !wasFollowing,
       followersCount: (prev.followersCount || 0) + (wasFollowing ? -1 : 1),
     } : prev);
     setFollowLoading(true);
-    try {
-      if (wasFollowing) await api.delete(`/follows/${userData.id}`);
-      else              await api.post(`/follows/${userData.id}`);
-    } catch {
-      setUserData(prev => prev ? {
-        ...prev,
-        isFollowing:    wasFollowing,
-        followersCount: (prev.followersCount || 0) + (wasFollowing ? 1 : -1),
-      } : prev);
-    } finally {
-      setFollowLoading(false);
-    }
+    await followStore.toggle(userData.id);
+    setFollowLoading(false);
   };
 
-  // ── DM ────────────────────────────────────────────────────────────────────
   const handleDM = async () => {
     if (!userData?.id) return;
     try {
-      // Backend retorna a conversa completa com participantA/B
       const res = await api.post("/messages/conversations", { userId: userData.id });
-      const conversation = res.data;
-      // Constrói o objeto "other" que o ChatScreen espera
-      const other = {
-        id:          userData.id,
-        username:    userData.username,
-        displayName: userData.displayName,
-        avatarUrl:   userData.avatarUrl,
-      };
-      navigation.navigate("Chat", { conversation, other });
+      const other = { id: userData.id, username: userData.username, displayName: userData.displayName, avatarUrl: userData.avatarUrl };
+      navigation.navigate("Chat", { conversation: res.data, other });
     } catch (e: any) {
-      // Se a conversa já existe, o backend pode retorná-la no erro 409
       if (e?.response?.data?.conversation) {
-        const conversation = e.response.data.conversation;
-        const other = {
-          id:          userData.id,
-          username:    userData.username,
-          displayName: userData.displayName,
-          avatarUrl:   userData.avatarUrl,
-        };
-        navigation.navigate("Chat", { conversation, other });
+        const other = { id: userData.id, username: userData.username, displayName: userData.displayName, avatarUrl: userData.avatarUrl };
+        navigation.navigate("Chat", { conversation: e.response.data.conversation, other });
       } else {
         navigation.navigate("Messages");
       }
     }
   };
 
-  // ── Share ─────────────────────────────────────────────────────────────────
   const handleShare = async () => {
     try {
-      await Share.share({
-        message: `Confira @${username} na Rede!\nhttps://social-production-8e37.up.railway.app/u/${username}`,
-      });
+      await Share.share({ message: `Confira @${username} na Rede!\nhttps://social-production-8e37.up.railway.app/u/${username}` });
     } catch {}
   };
 
   const goToFollowers = (tab: "followers" | "following") =>
     navigation?.navigate?.("FollowersList", { username, userId: userData?.id, tab });
 
-  // ── Filtros de posts ───────────────────────────────────────────────────────
   const imagePosts   = posts.filter(p => p.postType === "image" || (p.mediaUrls?.length > 0 && !["code","project","text"].includes(p.postType)));
   const thoughtPosts = posts.filter(p => p.postType === "text");
   const codePosts    = posts.filter(p => p.postType === "code");
   const projectPosts = posts.filter(p => p.postType === "project");
 
-  // ── Grid ──────────────────────────────────────────────────────────────────
   const renderGrid = (data: any[], tabKey: string) => (
     <FlatList
       data={data}
@@ -228,27 +184,19 @@ export default function UserProfileScreen({ route, navigation }: any) {
     />
   );
 
-  // ── Conteúdo da tab ────────────────────────────────────────────────────────
   const renderTabContent = () => {
-    // Perfil privado
     if (userData?.isPrivate && !userData?.isFollowing && !isMe) {
       return (
         <View style={s.emptyTab}>
           <Ionicons name="lock-closed-outline" size={36} color={theme.textTertiary} />
           <Text style={[s.emptyTitle, { color: theme.text }]}>Perfil privado</Text>
-          <Text style={[s.emptySub, { color: theme.textSecondary }]}>
-            Siga para ver os posts de @{username}
-          </Text>
+          <Text style={[s.emptySub, { color: theme.textSecondary }]}>Siga para ver os posts de @{username}</Text>
         </View>
       );
     }
-
     if (loading) return <View style={s.emptyTab}><ActivityIndicator color={theme.primary} /></View>;
 
-    const tabMap: Record<string, any[]> = {
-      posts: imagePosts, thoughts: thoughtPosts,
-      code: codePosts,   projects: projectPosts,
-    };
+    const tabMap: Record<string, any[]> = { posts: imagePosts, thoughts: thoughtPosts, code: codePosts, projects: projectPosts };
     const tabPosts = tabMap[activeTab] || [];
 
     if (!tabPosts.length) return (
@@ -310,24 +258,23 @@ export default function UserProfileScreen({ route, navigation }: any) {
         ))}
       </View>
     );
-
     return null;
   };
 
-  // ── ListHeaderComponent — idêntico ao ProfileScreen ───────────────────────
+  const isFollowingCurrent = followStore.states[userData?.id ?? ""] ?? !!userData?.isFollowing;
+
   const ListHeader = (
     <View>
       <View style={{ height: insets.top + TOPBAR_H }} />
 
-      {/* Avatar + stats */}
       <Animated.View style={[s.headerRow, { transform: [{ translateY: headerParallax }], opacity: headerFade }]}>
         <Avatar
           uri={userData?.avatarUrl}
           name={userData?.displayName || userData?.username}
           size={86}
           ring={hasStories ? "active" : "default"}
-        presenceStatus={(userData as any)?.presenceStatus ?? null}
-          />
+          presenceStatus={(userData as any)?.presenceStatus ?? null}
+        />
         <View style={s.statsRow}>
           <View style={s.statItem}>
             <Text style={[s.statValue, { color: theme.text }]}>
@@ -350,7 +297,6 @@ export default function UserProfileScreen({ route, navigation }: any) {
         </View>
       </Animated.View>
 
-      {/* Nome + badges + handle */}
       <View style={s.identityBlock}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
           <Text style={[s.displayName, { color: theme.text }]} numberOfLines={1}>
@@ -370,7 +316,6 @@ export default function UserProfileScreen({ route, navigation }: any) {
         )}
       </View>
 
-      {/* Bio — livre, sem rótulo */}
       {userData?.bio ? (
         <Text style={[s.bioText, { color: theme.text }]}>{userData.bio}</Text>
       ) : null}
@@ -378,7 +323,6 @@ export default function UserProfileScreen({ route, navigation }: any) {
       {/* Botões de ação */}
       <View style={s.actionsRow}>
         {isMe ? (
-          // Perfil próprio — Editar
           <TouchableOpacity
             style={[s.actionBtn, { flex: 1, backgroundColor: theme.surface, borderColor: theme.primary + "55" }]}
             onPress={() => navigation.navigate("EditProfile")}
@@ -388,49 +332,37 @@ export default function UserProfileScreen({ route, navigation }: any) {
           </TouchableOpacity>
         ) : (
           <>
-            {/* Follow / Seguindo */}
-            <TouchableOpacity
-              style={[
-                s.actionBtn,
-                { flex: 1 },
-                userData?.isFollowing
-                  ? { backgroundColor: "transparent", borderColor: theme.border, borderWidth: 1 }
-                  : { backgroundColor: theme.primary, borderColor: "transparent", borderWidth: 0 },
-              ]}
+            {/* Follow — usa FollowButton com glow idêntico ao Explorar */}
+            <FollowButton
+              isFollowing={isFollowingCurrent}
               onPress={handleFollow}
               disabled={followLoading}
-              activeOpacity={0.8}
-            >
-              {followLoading
-                ? <ActivityIndicator size="small" color={userData?.isFollowing ? theme.textSecondary : "#fff"} />
-                : <Text style={[s.actionBtnText, { color: userData?.isFollowing ? theme.textSecondary : "#fff" }]}>
-                    {userData?.isFollowing ? "Seguindo" : userData?.isFollowedBy ? "Seguir de volta" : "Seguir"}
-                  </Text>
-              }
-            </TouchableOpacity>
+              size="md"
+              label={isFollowingCurrent ? "Seguindo" : userData?.isFollowedBy ? "Seguir de volta" : "Seguir"}
+              flex
+            />
 
-            {/* DM — só para terceiros */}
-            <TouchableOpacity
+            {/* DM */}
+            <GlowButton
               style={[s.actionBtnSq, { backgroundColor: theme.surface, borderColor: theme.primary + "55" }]}
               onPress={handleDM}
-              activeOpacity={0.7}
+              glowVariant="neutral"
             >
               <Ionicons name="paper-plane-outline" size={16} color={theme.text} />
-            </TouchableOpacity>
+            </GlowButton>
           </>
         )}
 
         {/* Compartilhar */}
-        <TouchableOpacity
+        <GlowButton
           style={[s.actionBtnSq, { backgroundColor: theme.surface, borderColor: theme.primary + "55" }]}
           onPress={handleShare}
-          activeOpacity={0.7}
+          glowVariant="neutral"
         >
           <Ionicons name="share-social-outline" size={16} color={theme.text} />
-        </TouchableOpacity>
+        </GlowButton>
       </View>
 
-      {/* Meta — Trabalho / Website / Skills */}
       {(userData?.jobTitle || userData?.company || userData?.website || (userData?.skills?.length || 0) > 0) && (
         <View style={s.metaBlock}>
           {(userData?.jobTitle || userData?.company) && (
@@ -461,22 +393,12 @@ export default function UserProfileScreen({ route, navigation }: any) {
         </View>
       )}
 
-      {/* Tabs */}
       <View style={[s.tabsBar, { borderBottomColor: theme.border }]}>
         {TABS.map(tab => {
           const isActive = activeTab === tab.key;
           return (
-            <TouchableOpacity
-              key={tab.key}
-              style={s.tabBtn}
-              onPress={() => setActiveTab(tab.key)}
-              activeOpacity={0.7}
-            >
-              <Ionicons
-                name={(isActive ? tab.iconFilled : tab.icon) as any}
-                size={21}
-                color={isActive ? theme.primary : theme.textTertiary}
-              />
+            <TouchableOpacity key={tab.key} style={s.tabBtn} onPress={() => setActiveTab(tab.key)} activeOpacity={0.7}>
+              <Ionicons name={(isActive ? tab.iconFilled : tab.icon) as any} size={21} color={isActive ? theme.primary : theme.textTertiary} />
               {isActive && <View style={[s.tabDot, { backgroundColor: theme.primary }]} />}
             </TouchableOpacity>
           );
@@ -485,7 +407,6 @@ export default function UserProfileScreen({ route, navigation }: any) {
     </View>
   );
 
-  // ── Loading inicial ────────────────────────────────────────────────────────
   if (loading && !userData) {
     return (
       <View style={[s.root, { backgroundColor: theme.background, alignItems: "center", justifyContent: "center" }]}>
@@ -495,32 +416,23 @@ export default function UserProfileScreen({ route, navigation }: any) {
     );
   }
 
-  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <View style={[s.root, { backgroundColor: theme.background }]}>
       <StatusBar barStyle={isDark ? "light-content" : "dark-content"} translucent backgroundColor="transparent" />
 
-      {/* Top bar flutuante com blur */}
       <View style={[s.topBarWrapper, { paddingTop: insets.top, height: insets.top + TOPBAR_H }]}>
         <Animated.View style={[StyleSheet.absoluteFillObject, { opacity: topBarBlurOpacity }]}>
           <BlurView intensity={90} tint={glassBlur} style={StyleSheet.absoluteFillObject} />
         </Animated.View>
         <View style={s.topBar}>
-          <TouchableOpacity
-            style={[s.topBarBtn, { backgroundColor: theme.surface + "CC" }]}
-            onPress={() => navigation.goBack()}
-            activeOpacity={0.7}
-          >
+          <TouchableOpacity style={[s.topBarBtn, { backgroundColor: theme.surface + "CC" }]} onPress={() => navigation.goBack()} activeOpacity={0.7}>
             <Ionicons name="arrow-back" size={19} color={theme.text} />
           </TouchableOpacity>
-          <Text style={[s.topUsername, { color: theme.text }]} numberOfLines={1}>
-            @{username}
-          </Text>
+          <Text style={[s.topUsername, { color: theme.text }]} numberOfLines={1}>@{username}</Text>
           <View style={{ width: 34 }} />
         </View>
       </View>
 
-      {/* FlatList única */}
       <Animated.FlatList
         ref={listRef}
         data={[{ key: "content" }]}
@@ -542,43 +454,35 @@ export default function UserProfileScreen({ route, navigation }: any) {
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
   root:            { flex: 1 },
   topBarWrapper:   { position: "absolute", top: 0, left: 0, right: 0, zIndex: 10, justifyContent: "flex-end" },
   topBar:          { height: TOPBAR_H, paddingHorizontal: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   topBarBtn:       { width: 34, height: 34, borderRadius: 11, alignItems: "center", justifyContent: "center" },
   topUsername:     { flex: 1, fontSize: 16, fontWeight: "700", textAlign: "center", paddingHorizontal: 8 },
-
   headerRow:       { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingTop: 14, paddingBottom: 16, gap: 16 },
   statsRow:        { flex: 1, flexDirection: "row", justifyContent: "space-around" },
   statItem:        { alignItems: "center", gap: 1 },
   statValue:       { fontSize: 20, fontWeight: "800" },
   statLabel:       { fontSize: 11 },
-
   identityBlock:   { paddingHorizontal: 16, marginBottom: 6 },
   displayName:     { fontSize: 18, fontWeight: "800", letterSpacing: -0.3 },
   handle:          { fontSize: 13, marginTop: 2 },
   followsYouBadge: { alignSelf: "flex-start", borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, marginTop: 4 },
   followsYouText:  { fontSize: 11, fontWeight: "600" },
-
   bioText:         { paddingHorizontal: 16, fontSize: 14, lineHeight: 21, marginBottom: 12 },
-
   actionsRow:      { flexDirection: "row", paddingHorizontal: 16, gap: 8, marginBottom: 14, alignItems: "center" },
   actionBtn:       { height: 36, borderRadius: 10, borderWidth: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 16 },
   actionBtnText:   { fontSize: 13, fontWeight: "600" },
   actionBtnSq:     { width: 36, height: 36, borderRadius: 10, borderWidth: 1, alignItems: "center", justifyContent: "center" },
-
   metaBlock:       { paddingHorizontal: 16, marginBottom: 16, gap: 6 },
   metaRow:         { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
   metaText:        { fontSize: 13 },
   skillChip:       { borderRadius: 20, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 3 },
   skillText:       { fontSize: 11, fontWeight: "600" },
-
   tabsBar:         { flexDirection: "row", borderBottomWidth: StyleSheet.hairlineWidth, height: TABS_H },
   tabBtn:          { flex: 1, alignItems: "center", justifyContent: "center", gap: 3 },
   tabDot:          { width: 4, height: 4, borderRadius: 2 },
-
   gridThumb:       { width: GRID_SIZE, height: GRID_SIZE },
   gridImg:         { width: "100%", height: "100%" },
   emptyTab:        { padding: 60, alignItems: "center", gap: 12 },

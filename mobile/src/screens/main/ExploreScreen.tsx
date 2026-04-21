@@ -10,6 +10,7 @@ import { useAuthStore } from '../../store/auth.store';
 import { api } from '../../services/api';
 import Avatar from '../../components/ui/Avatar';
 import FollowButton from '../../components/ui/FollowButton';
+import { useFollowStore } from '../../store/follow.store';
 import { PresenceStatus } from '../../services/presence.service';
 
 interface UserResult {
@@ -26,6 +27,7 @@ export default function ExploreScreen({ navigation }: any) {
   const { theme, isDark } = useThemeStore();
   const { user: me }      = useAuthStore();
   const insets            = useSafeAreaInsets();
+  const followStore       = useFollowStore();
 
   const [query,    setQuery]    = useState('');
   const [results,  setResults]  = useState<UserResult[]>([]);
@@ -33,9 +35,6 @@ export default function ExploreScreen({ navigation }: any) {
   const [searched, setSearched] = useState(false);
   const debounceRef = useRef<any>(null);
 
-  // Cache local de estado de follow — persiste entre buscas da mesma sessão
-  // Map<userId, isFollowing>
-  const followCache = useRef<Map<string, boolean>>(new Map());
 
   const search = useCallback(async (q: string) => {
     if (!q.trim()) { setResults([]); setSearched(false); return; }
@@ -44,15 +43,9 @@ export default function ExploreScreen({ navigation }: any) {
       const { data } = await api.get(`/users/search?q=${encodeURIComponent(q)}`);
       const raw: UserResult[] = Array.isArray(data) ? data : [];
 
-      // Aplica cache local sobre o que o servidor retornou
-      const merged = raw.map(u => ({
-        ...u,
-        isFollowing: followCache.current.has(u.id)
-          ? followCache.current.get(u.id)!
-          : !!u.isFollowing,
-      }));
-
-      setResults(merged);
+      // Hidrata o store global com os estados vindos da API
+      followStore.hydrate(raw.map(u => ({ userId: u.id, isFollowing: !!u.isFollowing })));
+      setResults(raw);
       setSearched(true);
     } catch {
       setResults([]);
@@ -71,36 +64,10 @@ export default function ExploreScreen({ navigation }: any) {
     setQuery(''); setResults([]); setSearched(false);
   };
 
-  const toggleFollow = useCallback(async (item: UserResult) => {
-    if (item.id === me?.id) return;
-    const wasFollowing = followCache.current.has(item.id)
-      ? followCache.current.get(item.id)!
-      : !!item.isFollowing;
-
-    const newState = !wasFollowing;
-
-    // Salva no cache imediatamente
-    followCache.current.set(item.id, newState);
-
-    // Update optimista na UI
-    setResults(prev =>
-      prev.map(u => u.id === item.id ? { ...u, isFollowing: newState } : u)
-    );
-
-    try {
-      if (wasFollowing) await api.delete(`/follows/${item.id}`);
-      else              await api.post(`/follows/${item.id}`);
-    } catch (e: any) {
-      const status = e?.response?.status;
-      // 409 = já está seguindo — o estado real já é o que o cache diz, ignora
-      if (status === 409) return;
-      // Outros erros — reverte
-      followCache.current.set(item.id, wasFollowing);
-      setResults(prev =>
-        prev.map(u => u.id === item.id ? { ...u, isFollowing: wasFollowing } : u)
-      );
-    }
-  }, [me?.id]);
+  const toggleFollow = useCallback(async (userId: string) => {
+    if (userId === me?.id) return;
+    await followStore.toggle(userId);
+  }, [me?.id, followStore]);
 
   const goToProfile = (item: UserResult) => {
     if (item.id === me?.id) navigation.navigate('Tabs', { screen: 'Profile' });
@@ -139,8 +106,8 @@ export default function ExploreScreen({ navigation }: any) {
 
         {!isMe && (
           <FollowButton
-            isFollowing={!!item.isFollowing}
-            onPress={() => toggleFollow(item)}
+            isFollowing={followStore.states[item.id] ?? !!item.isFollowing}
+            onPress={() => toggleFollow(item.id)}
           />
         )}
       </TouchableOpacity>
