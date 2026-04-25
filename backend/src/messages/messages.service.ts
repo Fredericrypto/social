@@ -41,7 +41,6 @@ export class MessagesService {
       })));
   }
 
-  // NÃO marca como lido aqui — só o gateway faz isso via join_conversation
   async getMessages(conversationId: string, userId: string, page = 1, limit = 30) {
     const conv = await this.convRepo.findOne({ where: { id: conversationId } });
     if (!conv) throw new NotFoundException();
@@ -65,11 +64,8 @@ export class MessagesService {
     }
 
     const [messages, total] = await qb.getManyAndCount();
-
     return {
-      messages: messages.reverse().map(m => ({
-        ...m, sender: this.sanitizeUser(m.sender),
-      })),
+      messages: messages.reverse().map(m => ({ ...m, sender: this.sanitizeUser(m.sender) })),
       total, page,
     };
   }
@@ -89,33 +85,41 @@ export class MessagesService {
     await this.dataSource.transaction(async manager => {
       message = await manager.save(
         Message,
-        this.msgRepo.create({
-          content: content || '',
-          imageUrl: imageUrl ?? null,
-          senderId,
-          conversationId,
-        }),
+        this.msgRepo.create({ content: content || '', imageUrl: imageUrl ?? null, senderId, conversationId }),
       );
       await manager.update(Conversation, conversationId, {
         lastMessageId: message.id,
         lastMessageAt: message.createdAt,
       });
     });
-
     return message!;
   }
 
-  // Fix: busca a conversa via query ao invés de relation (evita o 404)
-  async deleteMessage(messageId: string, userId: string): Promise<void> {
+  /** Salva a reação no banco. Qualquer participante da conversa pode reagir. */
+  async reactToMessage(
+    messageId: string,
+    userId: string,
+    reaction: string | null,
+  ): Promise<Message> {
     const msg = await this.msgRepo.findOne({ where: { id: messageId } });
-    if (!msg) throw new NotFoundException('Mensagem não encontrada');
+    if (!msg) throw new NotFoundException();
 
     const conv = await this.convRepo.findOne({ where: { id: msg.conversationId } });
-    if (!conv) throw new NotFoundException('Conversa não encontrada');
-
+    if (!conv) throw new NotFoundException();
     if (conv.participantAId !== userId && conv.participantBId !== userId)
       throw new ForbiddenException();
 
+    await this.msgRepo.update(messageId, { reaction });
+    return { ...msg, reaction };
+  }
+
+  async deleteMessage(messageId: string, userId: string): Promise<void> {
+    const msg = await this.msgRepo.findOne({ where: { id: messageId } });
+    if (!msg) throw new NotFoundException('Mensagem não encontrada');
+    const conv = await this.convRepo.findOne({ where: { id: msg.conversationId } });
+    if (!conv) throw new NotFoundException('Conversa não encontrada');
+    if (conv.participantAId !== userId && conv.participantBId !== userId)
+      throw new ForbiddenException();
     await this.msgRepo.update(messageId, { isDeleted: true });
   }
 
@@ -134,7 +138,6 @@ export class MessagesService {
       select: ['id', 'senderId'],
     });
     if (!unread.length) return [];
-
     const ids = unread.map(m => m.id);
     await this.msgRepo
       .createQueryBuilder()
@@ -142,7 +145,6 @@ export class MessagesService {
       .set({ isRead: true, deliveredAt: () => 'COALESCE("deliveredAt", NOW())' })
       .whereInIds(ids)
       .execute();
-
     return unread.map(m => m.senderId);
   }
 
@@ -151,7 +153,6 @@ export class MessagesService {
     if (!conv) throw new NotFoundException();
     if (conv.participantAId !== userId && conv.participantBId !== userId)
       throw new ForbiddenException();
-
     const isA = conv.participantAId === userId;
     await this.convRepo.update(conversationId, {
       ...(isA ? { lastClearedAtA: new Date() } : { lastClearedAtB: new Date() }),

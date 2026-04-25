@@ -11,13 +11,15 @@ export class Message {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  /** Texto da mensagem — vazio se for só imagem */
   @Column({ type: 'text', default: '' })
   content: string;
 
-  /** URL da imagem no Supabase Storage (bucket: messages) */
   @Column({ type: 'text', nullable: true, default: null })
   imageUrl: string | null;
+
+  /** Emoji de reação — ex: '❤️', '😂'. Null = sem reação. */
+  @Column({ type: 'text', nullable: true, default: null })
+  reaction: string | null;
 
   @Column()
   senderId: string;

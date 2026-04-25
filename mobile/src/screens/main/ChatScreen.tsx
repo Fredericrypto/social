@@ -1,13 +1,12 @@
 /**
- * ChatScreen.tsx — Venus v9
+ * ChatScreen.tsx — Venus v10
  *
- * Mudanças em relação à v8:
- *  [1] Avatares removidos das bolhas — layout mais limpo
- *  [2] Preview de imagem no input com legenda antes do envio
- *  [3] Upload real para Supabase Storage (bucket: messages)
- *  [4] Botão Voltar com GlowBtn slate
- *  [5] Botão + centralizado verticalmente com o input
- *  [6] imageUrl persistido no banco e carregado no histórico
+ * Fixes:
+ *  [1] Reações persistidas no banco via PATCH /messages/:id/reaction
+ *      Socket emite 'message_reaction' para atualizar o outro participante
+ *  [2] Modal de reações fecha e permanece fechado após selecionar emoji
+ *  [3] Input salvo no AsyncStorage por conversa — persiste ao sair e voltar
+ *  [4] Upload de imagem via FileSystem (fix Expo Go Network request failed)
  */
 
 import React, {
@@ -25,6 +24,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import * as ImagePicker from 'expo-image-picker';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Animated, {
   useSharedValue, useAnimatedStyle, withTiming,
   withSpring, withSequence, Easing,
@@ -65,7 +65,6 @@ const GRAD_SLATE = ['#475569', '#94A3B8', '#64748B'] as const;
 const SH = Dimensions.get('window').height;
 const SW = Dimensions.get('window').width;
 
-// ─── Tipos ────────────────────────────────────────────────────────────────────
 type CheckState = 'sent' | 'delivered' | 'read';
 
 interface Message {
@@ -73,10 +72,10 @@ interface Message {
   senderId:    string;
   content:     string;
   imageUrl?:   string | null;
+  reaction?:   string | null;
   createdAt:   string;
   deliveredAt: string | null;
   isRead:      boolean;
-  reaction?:   string | null;
   isDeleted?:  boolean;
 }
 
@@ -142,7 +141,7 @@ const ts = StyleSheet.create({
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
-//  GLOW BTN — reutilizado em Voltar, ···, + e Send
+//  GLOW BTN
 // ═════════════════════════════════════════════════════════════════════════════
 function GlowBtn({ onPress, children, size = 36, radius = 12, disabled = false }: {
   onPress: () => void; children: React.ReactNode;
@@ -419,128 +418,7 @@ const rm = StyleSheet.create({
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
-//  BALÃO — sem avatar, com imageUrl
-// ═════════════════════════════════════════════════════════════════════════════
-function Bubble({ msg, isMe, onLong, onDouble }: {
-  msg: Message; isMe: boolean;
-  onLong: (m: Message) => void; onDouble: (m: Message) => void;
-}) {
-  const lastTap = useRef(0);
-  const scale   = useRef(new RNAnimated.Value(1)).current;
-  const check   = getCheckState(msg);
-
-  const tap = () => {
-    const now = Date.now();
-    if (now - lastTap.current < 300) {
-      onDouble(msg);
-      RNAnimated.sequence([
-        RNAnimated.spring(scale, { toValue: 1.08, useNativeDriver: true, speed: 50 }),
-        RNAnimated.spring(scale, { toValue: 1,    useNativeDriver: true, speed: 30 }),
-      ]).start();
-    }
-    lastTap.current = now;
-  };
-
-  if (msg.isDeleted) return (
-    <View style={[b.row, isMe ? b.me : b.other]}>
-      <View style={b.deleted}><Text style={b.deletedTxt}>Mensagem apagada</Text></View>
-    </View>
-  );
-
-  // Bolha com imagem (+ legenda opcional)
-  if (msg.imageUrl) {
-    const imgW = SW * 0.65;
-    const imgH = imgW * 1.05;
-    return (
-      <View style={[b.row, isMe ? b.me : b.other]}>
-        <View style={b.wrap}>
-          <RNAnimated.View style={{ transform: [{ scale }] }}>
-            <TouchableOpacity onPress={tap} onLongPress={() => onLong(msg)} activeOpacity={0.88} delayLongPress={360}>
-              <View style={[b.imgBubble, isMe ? b.imgBubbleMe : b.imgBubbleOther, { width: imgW }]}>
-                <Image source={{ uri: msg.imageUrl }} style={[b.img, { height: imgH }]} resizeMode="cover" />
-                {!!msg.content && (
-                  <View style={b.imgCaption}>
-                    <Text style={b.imgCaptionTxt}>{msg.content}</Text>
-                  </View>
-                )}
-                <View style={b.imgFooter}>
-                  <Text style={b.imgTime}>{fmtTime(msg.createdAt)}</Text>
-                  {isMe && <CheckIcon state={check} />}
-                </View>
-              </View>
-            </TouchableOpacity>
-          </RNAnimated.View>
-          {msg.reaction && (
-            <View style={[b.badge, isMe ? b.badgeMe : b.badgeOther]}>
-              <Text style={{ fontSize: 13 }}>{msg.reaction}</Text>
-            </View>
-          )}
-        </View>
-      </View>
-    );
-  }
-
-  // Bolha de texto
-  return (
-    <View style={[b.row, isMe ? b.me : b.other]}>
-      <View style={b.wrap}>
-        <RNAnimated.View style={{ transform: [{ scale }] }}>
-          <TouchableOpacity onPress={tap} onLongPress={() => onLong(msg)} activeOpacity={0.85} delayLongPress={360}>
-            {isMe
-              ? <LinearGradient colors={[C.bubble1, C.bubble2]} start={{x:0,y:0}} end={{x:1,y:1}} style={[b.bubble, b.bubbleMe]}>
-                  <Text style={b.txtMe}>{msg.content}</Text>
-                </LinearGradient>
-              : <View style={[b.bubble, b.bubbleOther]}>
-                  <Text style={b.txtOther}>{msg.content}</Text>
-                </View>
-            }
-          </TouchableOpacity>
-        </RNAnimated.View>
-        {msg.reaction && (
-          <View style={[b.badge, isMe ? b.badgeMe : b.badgeOther]}>
-            <Text style={{ fontSize: 13 }}>{msg.reaction}</Text>
-          </View>
-        )}
-        <View style={[b.meta, isMe ? b.metaMe : b.metaOther]}>
-          <Text style={b.time}>{fmtTime(msg.createdAt)}</Text>
-          {isMe && <CheckIcon state={check} />}
-        </View>
-      </View>
-    </View>
-  );
-}
-
-const b = StyleSheet.create({
-  row:           { flexDirection: 'row', alignItems: 'flex-end', marginBottom: 2, paddingHorizontal: 14 },
-  me:            { justifyContent: 'flex-end' },
-  other:         { justifyContent: 'flex-start' },
-  wrap:          { maxWidth: '78%', gap: 3 },
-  bubble:        { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 20 },
-  bubbleMe:      { borderBottomRightRadius: 6 },
-  bubbleOther:   { backgroundColor: C.surfaceHi, borderWidth: 1, borderColor: C.border, borderBottomLeftRadius: 6 },
-  imgBubble:     { borderRadius: 18, overflow: 'hidden' },
-  imgBubbleMe:   { borderBottomRightRadius: 6 },
-  imgBubbleOther:{ borderBottomLeftRadius: 6 },
-  img:           { width: '100%' },
-  imgCaption:    { paddingHorizontal: 12, paddingTop: 8, paddingBottom: 4, backgroundColor: C.bubble1 },
-  imgCaptionTxt: { fontSize: 14, color: C.text, lineHeight: 19 },
-  imgFooter:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 3, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: 'rgba(0,0,0,0.35)', position: 'absolute', bottom: 0, right: 0 },
-  imgTime:       { fontSize: 10, color: 'rgba(255,255,255,0.75)' },
-  deleted:       { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 18, borderWidth: 1, borderColor: C.border, borderStyle: 'dashed' },
-  deletedTxt:    { fontSize: 13, fontStyle: 'italic', color: C.textTer },
-  txtMe:         { color: C.text, fontSize: 15, lineHeight: 21 },
-  txtOther:      { color: C.text, fontSize: 15, lineHeight: 21 },
-  badge:         { position: 'absolute', bottom: 16, width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg, borderWidth: 1, borderColor: C.borderHi },
-  badgeMe:       { right: -6 },
-  badgeOther:    { left: -6 },
-  meta:          { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 1 },
-  metaMe:        { justifyContent: 'flex-end' },
-  metaOther:     { justifyContent: 'flex-start' },
-  time:          { fontSize: 10, color: C.textTer },
-});
-
-// ═════════════════════════════════════════════════════════════════════════════
-//  REACTIONS SHEET
+//  REACTIONS SHEET — fix: fecha definitivamente após selecionar emoji
 // ═════════════════════════════════════════════════════════════════════════════
 function ReactionsSheet({ visible, msg, isMine, onPick, onDelete, onCopy, onClose }: {
   visible: boolean; msg: Message | null; isMine: boolean;
@@ -550,14 +428,19 @@ function ReactionsSheet({ visible, msg, isMine, onPick, onDelete, onCopy, onClos
   const insets = useSafeAreaInsets();
   const ty = useRef(new RNAnimated.Value(SH)).current;
   const op = useRef(new RNAnimated.Value(0)).current;
+  // Guarda se está ativamente visível para evitar re-abertura
+  const isAnimatingClose = useRef(false);
 
   useEffect(() => {
     if (visible) {
+      isAnimatingClose.current = false;
       RNAnimated.parallel([
         RNAnimated.spring(ty, { toValue: 0,  useNativeDriver: true, damping: 18, stiffness: 220 }),
         RNAnimated.timing(op, { toValue: 1,  duration: 180, useNativeDriver: true }),
       ]).start();
     } else {
+      if (isAnimatingClose.current) return;
+      isAnimatingClose.current = true;
       RNAnimated.parallel([
         RNAnimated.timing(ty, { toValue: SH, duration: 220, useNativeDriver: true }),
         RNAnimated.timing(op, { toValue: 0,  duration: 160, useNativeDriver: true }),
@@ -575,10 +458,11 @@ function ReactionsSheet({ visible, msg, isMine, onPick, onDelete, onCopy, onClos
     },
   })).current;
 
-  if (!visible && (ty as any)._value >= SH) return null;
+  // Renderiza mesmo quando !visible para animar o fechamento
+  const pointerEvents = visible ? 'auto' : 'none';
 
   return (
-    <View style={StyleSheet.absoluteFillObject} pointerEvents={visible ? 'auto' : 'none'}>
+    <View style={StyleSheet.absoluteFillObject} pointerEvents={pointerEvents as any}>
       <RNAnimated.View style={[rs.backdrop, { opacity: op }]}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
       </RNAnimated.View>
@@ -586,7 +470,10 @@ function ReactionsSheet({ visible, msg, isMine, onPick, onDelete, onCopy, onClos
         <View {...pan.panHandlers} style={rs.handleArea}><View style={rs.handle} /></View>
         <View style={rs.emojis}>
           {REACTIONS.map(e => (
-            <TouchableOpacity key={e} style={[rs.eBtn, msg?.reaction === e && rs.eBtnActive]} onPress={() => onPick(e)} activeOpacity={0.7}>
+            <TouchableOpacity key={e}
+              style={[rs.eBtn, msg?.reaction === e && rs.eBtnActive]}
+              onPress={() => onPick(e)}
+              activeOpacity={0.7}>
               <Text style={{ fontSize: 26 }}>{e}</Text>
             </TouchableOpacity>
           ))}
@@ -648,6 +535,125 @@ function TypingBubble() {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+//  BALÃO
+// ═════════════════════════════════════════════════════════════════════════════
+function Bubble({ msg, isMe, onLong, onDouble }: {
+  msg: Message; isMe: boolean;
+  onLong: (m: Message) => void; onDouble: (m: Message) => void;
+}) {
+  const lastTap = useRef(0);
+  const scale   = useRef(new RNAnimated.Value(1)).current;
+  const check   = getCheckState(msg);
+
+  const tap = () => {
+    const now = Date.now();
+    if (now - lastTap.current < 300) {
+      onDouble(msg);
+      RNAnimated.sequence([
+        RNAnimated.spring(scale, { toValue: 1.08, useNativeDriver: true, speed: 50 }),
+        RNAnimated.spring(scale, { toValue: 1,    useNativeDriver: true, speed: 30 }),
+      ]).start();
+    }
+    lastTap.current = now;
+  };
+
+  if (msg.isDeleted) return (
+    <View style={[b.row, isMe ? b.me : b.other]}>
+      <View style={b.deleted}><Text style={b.deletedTxt}>Mensagem apagada</Text></View>
+    </View>
+  );
+
+  if (msg.imageUrl) {
+    const imgW = SW * 0.65;
+    const imgH = imgW * 1.05;
+    return (
+      <View style={[b.row, isMe ? b.me : b.other]}>
+        <View style={b.wrap}>
+          <RNAnimated.View style={{ transform: [{ scale }] }}>
+            <TouchableOpacity onPress={tap} onLongPress={() => onLong(msg)} activeOpacity={0.88} delayLongPress={360}>
+              <View style={[b.imgBubble, isMe ? b.imgMe : b.imgOther, { width: imgW }]}>
+                <Image source={{ uri: msg.imageUrl }} style={[b.img, { height: imgH }]} resizeMode="cover" />
+                {!!msg.content && (
+                  <View style={b.caption}>
+                    <Text style={b.captionTxt}>{msg.content}</Text>
+                  </View>
+                )}
+                <View style={b.imgFooter}>
+                  <Text style={b.imgTime}>{fmtTime(msg.createdAt)}</Text>
+                  {isMe && <CheckIcon state={check} />}
+                </View>
+              </View>
+            </TouchableOpacity>
+          </RNAnimated.View>
+          {msg.reaction && (
+            <View style={[b.badge, isMe ? b.badgeMe : b.badgeOther]}>
+              <Text style={{ fontSize: 13 }}>{msg.reaction}</Text>
+            </View>
+          )}
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View style={[b.row, isMe ? b.me : b.other]}>
+      <View style={b.wrap}>
+        <RNAnimated.View style={{ transform: [{ scale }] }}>
+          <TouchableOpacity onPress={tap} onLongPress={() => onLong(msg)} activeOpacity={0.85} delayLongPress={360}>
+            {isMe
+              ? <LinearGradient colors={[C.bubble1, C.bubble2]} start={{x:0,y:0}} end={{x:1,y:1}} style={[b.bubble, b.bubbleMe]}>
+                  <Text style={b.txtMe}>{msg.content}</Text>
+                </LinearGradient>
+              : <View style={[b.bubble, b.bubbleOther]}>
+                  <Text style={b.txtOther}>{msg.content}</Text>
+                </View>
+            }
+          </TouchableOpacity>
+        </RNAnimated.View>
+        {msg.reaction && (
+          <View style={[b.badge, isMe ? b.badgeMe : b.badgeOther]}>
+            <Text style={{ fontSize: 13 }}>{msg.reaction}</Text>
+          </View>
+        )}
+        <View style={[b.meta, isMe ? b.metaMe : b.metaOther]}>
+          <Text style={b.time}>{fmtTime(msg.createdAt)}</Text>
+          {isMe && <CheckIcon state={check} />}
+        </View>
+      </View>
+    </View>
+  );
+}
+
+const b = StyleSheet.create({
+  row:         { flexDirection: 'row', alignItems: 'flex-end', marginBottom: 2, paddingHorizontal: 14 },
+  me:          { justifyContent: 'flex-end' },
+  other:       { justifyContent: 'flex-start' },
+  wrap:        { maxWidth: '78%', gap: 3 },
+  bubble:      { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 20 },
+  bubbleMe:    { borderBottomRightRadius: 6 },
+  bubbleOther: { backgroundColor: C.surfaceHi, borderWidth: 1, borderColor: C.border, borderBottomLeftRadius: 6 },
+  imgBubble:   { borderRadius: 18, overflow: 'hidden' },
+  imgMe:       { borderBottomRightRadius: 6 },
+  imgOther:    { borderBottomLeftRadius: 6 },
+  img:         { width: '100%' },
+  caption:     { paddingHorizontal: 12, paddingTop: 8, paddingBottom: 4, backgroundColor: C.bubble1 },
+  captionTxt:  { fontSize: 14, color: C.text, lineHeight: 19 },
+  imgFooter:   { position: 'absolute', bottom: 0, right: 0, flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: 'rgba(0,0,0,0.35)' },
+  imgTime:     { fontSize: 10, color: 'rgba(255,255,255,0.75)' },
+  deleted:     { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 18, borderWidth: 1, borderColor: C.border, borderStyle: 'dashed' },
+  deletedTxt:  { fontSize: 13, fontStyle: 'italic', color: C.textTer },
+  txtMe:       { color: C.text, fontSize: 15, lineHeight: 21 },
+  txtOther:    { color: C.text, fontSize: 15, lineHeight: 21 },
+  badge:       { position: 'absolute', bottom: 16, width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg, borderWidth: 1, borderColor: C.borderHi },
+  badgeMe:     { right: -6 },
+  badgeOther:  { left: -6 },
+  meta:        { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 1 },
+  metaMe:      { justifyContent: 'flex-end' },
+  metaOther:   { justifyContent: 'flex-start' },
+  time:        { fontSize: 10, color: C.textTer },
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
 //  CHAT SCREEN
 // ═════════════════════════════════════════════════════════════════════════════
 export default function ChatScreen({ route, navigation }: any) {
@@ -657,7 +663,7 @@ export default function ChatScreen({ route, navigation }: any) {
 
   const [messages,       setMessages]       = useState<Message[]>([]);
   const [input,          setInput]          = useState('');
-  const [selectedImage,  setSelectedImage]  = useState<string | null>(null); // preview
+  const [selectedImage,  setSelectedImage]  = useState<string | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [otherTyping,    setOtherTyping]    = useState(false);
   const [loading,        setLoading]        = useState(true);
@@ -675,15 +681,37 @@ export default function ChatScreen({ route, navigation }: any) {
   const isTypingRef = useRef(false);
   const menuBtnRef  = useRef<View>(null);
   const toastTimer  = useRef<any>(null);
+  const hasContent  = input.trim().length > 0 || selectedImage !== null;
 
-  // Tem texto OU imagem selecionada → botão enviar ativo
-  const hasContent = input.trim().length > 0 || selectedImage !== null;
+  // Chave do AsyncStorage para salvar o rascunho desta conversa
+  const DRAFT_KEY = `@venus:draft:${conversation.id}`;
 
   const showToast = useCallback((text: string, type: 'info'|'success'|'error' = 'info', ms = 2800) => {
     clearTimeout(toastTimer.current);
     setToastMsg({ text, type });
     toastTimer.current = setTimeout(() => setToastMsg(null), ms);
   }, []);
+
+  // ── Carregar rascunho salvo ────────────────────────────────────────────
+  useEffect(() => {
+    AsyncStorage.getItem(DRAFT_KEY)
+      .then(saved => { if (saved) setInput(saved); })
+      .catch(() => {});
+  }, [DRAFT_KEY]);
+
+  // ── Salvar rascunho ao digitar ─────────────────────────────────────────
+  // Debounce de 500ms para não salvar a cada tecla
+  const saveDraftTimer = useRef<any>(null);
+  const saveDraft = useCallback((text: string) => {
+    clearTimeout(saveDraftTimer.current);
+    saveDraftTimer.current = setTimeout(() => {
+      if (text.trim()) {
+        AsyncStorage.setItem(DRAFT_KEY, text).catch(() => {});
+      } else {
+        AsyncStorage.removeItem(DRAFT_KEY).catch(() => {});
+      }
+    }, 500);
+  }, [DRAFT_KEY]);
 
   // ── Checar bloqueio ────────────────────────────────────────────────────
   useEffect(() => {
@@ -705,6 +733,7 @@ export default function ChatScreen({ route, navigation }: any) {
         isRead:      m.isRead      ?? false,
         deliveredAt: m.deliveredAt ?? null,
         imageUrl:    m.imageUrl    ?? null,
+        reaction:    m.reaction    ?? null,
       }));
       setMessages(msgs);
       setTimeout(() => flatRef.current?.scrollToEnd({ animated: false }), 100);
@@ -734,6 +763,7 @@ export default function ChatScreen({ route, navigation }: any) {
         isRead:      false,
         deliveredAt: msg.deliveredAt ?? null,
         imageUrl:    msg.imageUrl    ?? null,
+        reaction:    msg.reaction    ?? null,
       }]);
       setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 80);
     });
@@ -755,6 +785,13 @@ export default function ChatScreen({ route, navigation }: any) {
       ));
     });
 
+    // Reação do outro usuário em tempo real
+    socket.on('message_reaction', ({ messageId, reaction }: { messageId: string; reaction: string | null }) => {
+      setMessages(prev => prev.map(m =>
+        m.id === messageId ? { ...m, reaction } : m
+      ));
+    });
+
     socket.on('message_blocked', () => {
       showToast('Não foi possível enviar a mensagem', 'error');
     });
@@ -770,34 +807,22 @@ export default function ChatScreen({ route, navigation }: any) {
       socket.off('user_typing');
       socket.off('message_delivered');
       socket.off('messages_read');
+      socket.off('message_reaction');
       socket.off('message_blocked');
       socket.off('presence:update', onPresence);
     };
   }, [conversation.id, loadMessages, other?.id, user?.id, showToast]);
 
-  // ── Selecionar imagem — salva no estado, mostra preview ───────────────
-  const handlePickImage = useCallback(async () => {
-    if (isBlocked) return;
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) { showToast('Permita acesso à galeria', 'error'); return; }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: 'images', quality: 0.85, allowsEditing: false,
-    });
-    if (result.canceled || !result.assets?.[0]?.uri) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    setSelectedImage(result.assets[0].uri);
-  }, [isBlocked, showToast]);
-
-  // ── Enviar — texto e/ou imagem ─────────────────────────────────────────
+  // ── Enviar mensagem ────────────────────────────────────────────────────
   const handleSend = useCallback(async () => {
     const content = input.trim();
     if ((!content && !selectedImage) || isBlocked) return;
 
     setInput('');
+    AsyncStorage.removeItem(DRAFT_KEY).catch(() => {});
     const imageToSend = selectedImage;
     setSelectedImage(null);
 
-    // Mensagem otimista
     const tempId = `temp-${Date.now()}`;
     const temp: Message = {
       id: tempId, senderId: user?.id || '',
@@ -810,16 +835,15 @@ export default function ChatScreen({ route, navigation }: any) {
 
     let finalImageUrl: string | null = null;
 
-    // Upload da imagem se houver
     if (imageToSend) {
       setUploadingImage(true);
       try {
         finalImageUrl = await uploadImage(imageToSend, 'messages');
-        // Atualiza a mensagem temp com a URL real
         setMessages(prev => prev.map(m =>
           m.id === tempId ? { ...m, imageUrl: finalImageUrl } : m
         ));
-      } catch {
+      } catch (e) {
+        console.error('[Upload]', e);
         showToast('Erro ao enviar imagem', 'error');
         setMessages(prev => prev.filter(m => m.id !== tempId));
         setUploadingImage(false);
@@ -838,8 +862,7 @@ export default function ChatScreen({ route, navigation }: any) {
     } else {
       try {
         const { data } = await api.post(`/messages/conversations/${conversation.id}`, {
-          content,
-          imageUrl: finalImageUrl,
+          content, imageUrl: finalImageUrl,
         });
         setMessages(prev => prev.map(m => m.id === tempId
           ? { ...data, isRead: false, deliveredAt: data.deliveredAt ?? null, imageUrl: data.imageUrl ?? finalImageUrl }
@@ -849,11 +872,12 @@ export default function ChatScreen({ route, navigation }: any) {
         setMessages(prev => prev.filter(m => m.id !== tempId));
       }
     }
-  }, [input, selectedImage, isBlocked, conversation.id, user?.id, showToast]);
+  }, [input, selectedImage, isBlocked, conversation.id, user?.id, DRAFT_KEY, showToast]);
 
   // ── Typing ─────────────────────────────────────────────────────────────
   const handleTyping = (text: string) => {
     setInput(text);
+    saveDraft(text);
     const socket = socketService.getSocket();
     if (!socket) return;
     if (!isTypingRef.current) {
@@ -866,6 +890,19 @@ export default function ChatScreen({ route, navigation }: any) {
       socket.emit('typing', { conversationId: conversation.id, isTyping: false });
     }, 1500);
   };
+
+  // ── Imagem ─────────────────────────────────────────────────────────────
+  const handlePickImage = useCallback(async () => {
+    if (isBlocked) return;
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) { showToast('Permita acesso à galeria', 'error'); return; }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: 'images', quality: 0.85, allowsEditing: false,
+    });
+    if (result.canceled || !result.assets?.[0]?.uri) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    setSelectedImage(result.assets[0].uri);
+  }, [isBlocked, showToast]);
 
   // ── Menu ───────────────────────────────────────────────────────────────
   const openMenu = () => {
@@ -928,32 +965,65 @@ export default function ChatScreen({ route, navigation }: any) {
     ]);
   }, [conversation.id, showToast]);
 
-  // ── Reações ────────────────────────────────────────────────────────────
+  // ── Reações — persiste no banco + emite socket ─────────────────────────
   const handleDouble = useCallback((msg: Message) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-    const r = msg.reaction === '❤️' ? null : '❤️';
-    setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, reaction: r } : m));
-  }, []);
+    const newReaction = msg.reaction === '❤️' ? null : '❤️';
+    // Otimista
+    setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, reaction: newReaction } : m));
+    // Persistir
+    if (!msg.id.startsWith('temp-')) {
+      api.patch(`/messages/${msg.id}/reaction`, { reaction: newReaction }).catch(() => {});
+      // Notificar o outro via socket
+      const socket = socketService.getSocket();
+      socket?.emit('message_reaction', {
+        conversationId: conversation.id,
+        messageId: msg.id,
+        reaction: newReaction,
+      });
+    }
+  }, [conversation.id]);
 
+  // ── Long press — abre sheet ────────────────────────────────────────────
   const handleLong = useCallback((msg: Message) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     setSelectedMsg(msg);
     setSheetOpen(true);
   }, []);
 
+  // ── Fechar sheet ───────────────────────────────────────────────────────
   const closeSheet = useCallback(() => {
     setSheetOpen(false);
-    setTimeout(() => setSelectedMsg(null), 250);
+    // Limpa selectedMsg após a animação de fechamento terminar
+    setTimeout(() => setSelectedMsg(null), 300);
   }, []);
 
-  const applyReaction = (emoji: string) => {
+  // ── Reação via sheet — persiste ────────────────────────────────────────
+  const applyReaction = useCallback((emoji: string) => {
     if (!selectedMsg) return;
-    const r = selectedMsg.reaction === emoji ? null : emoji;
-    setMessages(prev => prev.map(m => m.id === selectedMsg.id ? { ...m, reaction: r } : m));
-    closeSheet();
-  };
+    const msgId = selectedMsg.id;
+    const prev  = selectedMsg.reaction;
+    const newReaction = prev === emoji ? null : emoji;
 
-  const deleteMessage = useCallback(async (forEveryone: boolean) => {
+    // Fecha PRIMEIRO, depois atualiza — evita re-abertura do sheet
+    closeSheet();
+
+    setTimeout(() => {
+      setMessages(msgs => msgs.map(m => m.id === msgId ? { ...m, reaction: newReaction } : m));
+      if (!msgId.startsWith('temp-')) {
+        api.patch(`/messages/${msgId}/reaction`, { reaction: newReaction }).catch(() => {});
+        const socket = socketService.getSocket();
+        socket?.emit('message_reaction', {
+          conversationId: conversation.id,
+          messageId: msgId,
+          reaction: newReaction,
+        });
+      }
+    }, 50);
+  }, [selectedMsg, closeSheet, conversation.id]);
+
+  // ── Delete ─────────────────────────────────────────────────────────────
+  const deleteMessage = useCallback(async (_fe: boolean) => {
     if (!selectedMsg) return;
     const msgId = selectedMsg.id;
     closeSheet();
@@ -1001,17 +1071,14 @@ export default function ChatScreen({ route, navigation }: any) {
     return <Text style={s.hSub}>@{other?.username}</Text>;
   }, [otherTyping, otherPresence, other?.username]);
 
-  // ─────────────────────────────────────────────────────────────────────
   return (
     <View style={s.root}>
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
 
-      {/* Header — botão Voltar com GlowBtn */}
       <View style={[s.header, { paddingTop: insets.top + 8 }]}>
         <GlowBtn onPress={() => navigation.goBack()} size={36} radius={18}>
           <Ionicons name="chevron-back" size={20} color={C.text} />
         </GlowBtn>
-
         <TouchableOpacity style={s.hCenter} activeOpacity={0.8}
           onPress={() => other?.username && navigation.navigate('UserProfile', { username: other.username })}>
           <Avatar uri={other?.avatarUrl} name={other?.displayName || other?.username}
@@ -1021,8 +1088,6 @@ export default function ChatScreen({ route, navigation }: any) {
             {headerSub}
           </View>
         </TouchableOpacity>
-
-        {/* Botão ··· com GlowBtn */}
         <View ref={menuBtnRef} collapsable={false}>
           <GlowBtn onPress={openMenu} size={36} radius={12}>
             <Ionicons name="ellipsis-horizontal" size={18} color={C.textSec} />
@@ -1053,7 +1118,6 @@ export default function ChatScreen({ route, navigation }: any) {
           />
         )}
 
-        {/* ─── Input bar ─── */}
         <View style={[s.inputBar, { paddingBottom: insets.bottom + 8 }]}>
           {isBlocked ? (
             <View style={s.blockedBar}>
@@ -1062,7 +1126,6 @@ export default function ChatScreen({ route, navigation }: any) {
             </View>
           ) : (
             <>
-              {/* Preview da imagem selecionada */}
               {selectedImage && (
                 <View style={s.previewWrap}>
                   <Image source={{ uri: selectedImage }} style={s.previewImg} resizeMode="cover" />
@@ -1079,14 +1142,10 @@ export default function ChatScreen({ route, navigation }: any) {
                   )}
                 </View>
               )}
-
-              {/* Row do input — + alinhado ao centro do campo */}
               <View style={s.inputRow}>
-                {/* Botão + com GlowBtn, alinhado ao centro via alignSelf */}
                 <GlowBtn onPress={handlePickImage} size={38} radius={19}>
                   <Ionicons name="add" size={20} color={C.textSec} />
                 </GlowBtn>
-
                 <View style={s.inputWrap}>
                   <TextInput
                     style={s.input}
@@ -1145,13 +1204,11 @@ const s = StyleSheet.create({
   emptyTitle:         { fontSize: 32, fontWeight: '800', color: C.text, letterSpacing: -0.8 },
   emptySub:           { fontSize: 15, color: C.textSec, textAlign: 'center', lineHeight: 22 },
   inputBar:           { paddingHorizontal: 14, paddingTop: 8, backgroundColor: C.bg },
-  // Preview da imagem selecionada
-  previewWrap:        { marginBottom: 8, borderRadius: 14, overflow: 'hidden', alignSelf: 'flex-start', maxWidth: '60%' },
+  previewWrap:        { marginBottom: 8, borderRadius: 14, overflow: 'hidden', alignSelf: 'flex-start' },
   previewImg:         { width: 120, height: 120 },
   previewRemove:      { position: 'absolute', top: 6, right: 6, width: 24, height: 24, borderRadius: 12, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
   previewUploading:   { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   previewUploadingTxt:{ fontSize: 12, color: C.text, fontWeight: '600' },
-  // Input row — + e campo centralizados
   inputRow:           { flexDirection: 'row', alignItems: 'center', gap: 8 },
   inputWrap:          { flex: 1, flexDirection: 'row', alignItems: 'flex-end', gap: 8, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 26, paddingLeft: 18, paddingRight: 6, paddingVertical: 6, minHeight: 50, maxHeight: 140 },
   input:              { flex: 1, fontSize: 15, lineHeight: 20, color: C.text, paddingTop: 9, paddingBottom: 9, maxHeight: 120 },
