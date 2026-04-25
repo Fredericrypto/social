@@ -1,12 +1,13 @@
 /**
- * ChatScreen.tsx — Venus v10
+ * ChatScreen.tsx — Venus v11
  *
  * Fixes:
- *  [1] Reações persistidas no banco via PATCH /messages/:id/reaction
- *      Socket emite 'message_reaction' para atualizar o outro participante
- *  [2] Modal de reações fecha e permanece fechado após selecionar emoji
- *  [3] Input salvo no AsyncStorage por conversa — persiste ao sair e voltar
- *  [4] Upload de imagem via FileSystem (fix Expo Go Network request failed)
+ *  [1] Modal de reações atrás do teclado → Keyboard.dismiss() antes de abrir
+ *  [2] Botão voltar da bottom tab fecha modal em vez de navegar
+ *      → navigation.addListener('beforeRemove') intercepta se sheetOpen
+ *  [3] Scroll para última mensagem ao abrir (mesmo comportamento WhatsApp)
+ *  [4] Unread highlight — header "Mensagens não lidas" + fundo destacado 5s
+ *      → calcula firstUnreadIndex ao carregar, destaca com fade out
  */
 
 import React, {
@@ -16,7 +17,7 @@ import {
   View, Text, FlatList, TextInput, TouchableOpacity,
   StyleSheet, Platform, StatusBar, Image, Alert,
   Animated as RNAnimated, Pressable, PanResponder,
-  Dimensions, ScrollView,
+  Dimensions, ScrollView, Keyboard,
 } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { KeyboardAvoidingView as RNKeyboardAvoidingView } from 'react-native';
@@ -58,6 +59,7 @@ const C = {
   success:   '#4ADE80',
   bubble1:   '#1E293B',
   bubble2:   '#334155',
+  unread:    'rgba(34,211,238,0.08)', // highlight cyan sutil
 };
 
 const GRAD_CYAN  = ['#22D3EE', '#3B82F6', '#8B5CF6'] as const;
@@ -350,15 +352,9 @@ function ReportModal({ visible, targetName, onSubmit, onClose }: {
       <RNAnimated.View style={[rm.backdrop, { opacity: op }]}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
       </RNAnimated.View>
-      <RNKeyboardAvoidingView
-        style={rm.kavWrap}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        pointerEvents="box-none"
-      >
+      <RNKeyboardAvoidingView style={rm.kavWrap} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} pointerEvents="box-none">
         <RNAnimated.View style={[rm.sheet, { paddingBottom: insets.bottom + 16, transform: [{ translateY: ty }] }]}>
-          <View {...pan.panHandlers} style={rm.handleArea}>
-            <View style={rm.handle} />
-          </View>
+          <View {...pan.panHandlers} style={rm.handleArea}><View style={rm.handle} /></View>
           <Text style={rm.title}>Denunciar usuário</Text>
           <Text style={rm.sub}>Qual o problema com {targetName}?</Text>
           <ScrollView style={rm.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
@@ -381,8 +377,7 @@ function ReportModal({ visible, targetName, onSubmit, onClose }: {
                 underlineColorAndroid="transparent" />
             </View>
           </ScrollView>
-          <TouchableOpacity
-            style={[rm.submitBtn, !selectedReason && { opacity: 0.4 }]}
+          <TouchableOpacity style={[rm.submitBtn, !selectedReason && { opacity: 0.4 }]}
             onPress={async () => {
               if (!selectedReason) return;
               setSubmitting(true);
@@ -418,7 +413,7 @@ const rm = StyleSheet.create({
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
-//  REACTIONS SHEET — fix: fecha definitivamente após selecionar emoji
+//  REACTIONS SHEET
 // ═════════════════════════════════════════════════════════════════════════════
 function ReactionsSheet({ visible, msg, isMine, onPick, onDelete, onCopy, onClose }: {
   visible: boolean; msg: Message | null; isMine: boolean;
@@ -428,19 +423,14 @@ function ReactionsSheet({ visible, msg, isMine, onPick, onDelete, onCopy, onClos
   const insets = useSafeAreaInsets();
   const ty = useRef(new RNAnimated.Value(SH)).current;
   const op = useRef(new RNAnimated.Value(0)).current;
-  // Guarda se está ativamente visível para evitar re-abertura
-  const isAnimatingClose = useRef(false);
 
   useEffect(() => {
     if (visible) {
-      isAnimatingClose.current = false;
       RNAnimated.parallel([
         RNAnimated.spring(ty, { toValue: 0,  useNativeDriver: true, damping: 18, stiffness: 220 }),
         RNAnimated.timing(op, { toValue: 1,  duration: 180, useNativeDriver: true }),
       ]).start();
     } else {
-      if (isAnimatingClose.current) return;
-      isAnimatingClose.current = true;
       RNAnimated.parallel([
         RNAnimated.timing(ty, { toValue: SH, duration: 220, useNativeDriver: true }),
         RNAnimated.timing(op, { toValue: 0,  duration: 160, useNativeDriver: true }),
@@ -458,7 +448,6 @@ function ReactionsSheet({ visible, msg, isMine, onPick, onDelete, onCopy, onClos
     },
   })).current;
 
-  // Renderiza mesmo quando !visible para animar o fechamento
   const pointerEvents = visible ? 'auto' : 'none';
 
   return (
@@ -470,10 +459,7 @@ function ReactionsSheet({ visible, msg, isMine, onPick, onDelete, onCopy, onClos
         <View {...pan.panHandlers} style={rs.handleArea}><View style={rs.handle} /></View>
         <View style={rs.emojis}>
           {REACTIONS.map(e => (
-            <TouchableOpacity key={e}
-              style={[rs.eBtn, msg?.reaction === e && rs.eBtnActive]}
-              onPress={() => onPick(e)}
-              activeOpacity={0.7}>
+            <TouchableOpacity key={e} style={[rs.eBtn, msg?.reaction === e && rs.eBtnActive]} onPress={() => onPick(e)} activeOpacity={0.7}>
               <Text style={{ fontSize: 26 }}>{e}</Text>
             </TouchableOpacity>
           ))}
@@ -537,13 +523,23 @@ function TypingBubble() {
 // ═════════════════════════════════════════════════════════════════════════════
 //  BALÃO
 // ═════════════════════════════════════════════════════════════════════════════
-function Bubble({ msg, isMe, onLong, onDouble }: {
-  msg: Message; isMe: boolean;
+function Bubble({ msg, isMe, onLong, onDouble, highlighted }: {
+  msg: Message; isMe: boolean; highlighted: boolean;
   onLong: (m: Message) => void; onDouble: (m: Message) => void;
 }) {
-  const lastTap = useRef(0);
-  const scale   = useRef(new RNAnimated.Value(1)).current;
-  const check   = getCheckState(msg);
+  const lastTap   = useRef(0);
+  const scale     = useRef(new RNAnimated.Value(1)).current;
+  const bgOpacity = useRef(new RNAnimated.Value(highlighted ? 1 : 0)).current;
+  const check     = getCheckState(msg);
+
+  // Fade out do highlight após 5s
+  useEffect(() => {
+    if (!highlighted) return;
+    const timer = setTimeout(() => {
+      RNAnimated.timing(bgOpacity, { toValue: 0, duration: 1200, useNativeDriver: false }).start();
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, [highlighted, bgOpacity]);
 
   const tap = () => {
     const now = Date.now();
@@ -557,27 +553,26 @@ function Bubble({ msg, isMe, onLong, onDouble }: {
     lastTap.current = now;
   };
 
+  const bgColor = bgOpacity.interpolate({
+    inputRange: [0, 1], outputRange: ['rgba(34,211,238,0)', C.unread],
+  });
+
   if (msg.isDeleted) return (
-    <View style={[b.row, isMe ? b.me : b.other]}>
+    <RNAnimated.View style={[b.row, isMe ? b.me : b.other, { backgroundColor: bgColor }]}>
       <View style={b.deleted}><Text style={b.deletedTxt}>Mensagem apagada</Text></View>
-    </View>
+    </RNAnimated.View>
   );
 
   if (msg.imageUrl) {
-    const imgW = SW * 0.65;
-    const imgH = imgW * 1.05;
+    const imgW = SW * 0.65; const imgH = imgW * 1.05;
     return (
-      <View style={[b.row, isMe ? b.me : b.other]}>
+      <RNAnimated.View style={[b.row, isMe ? b.me : b.other, { backgroundColor: bgColor }]}>
         <View style={b.wrap}>
           <RNAnimated.View style={{ transform: [{ scale }] }}>
             <TouchableOpacity onPress={tap} onLongPress={() => onLong(msg)} activeOpacity={0.88} delayLongPress={360}>
               <View style={[b.imgBubble, isMe ? b.imgMe : b.imgOther, { width: imgW }]}>
                 <Image source={{ uri: msg.imageUrl }} style={[b.img, { height: imgH }]} resizeMode="cover" />
-                {!!msg.content && (
-                  <View style={b.caption}>
-                    <Text style={b.captionTxt}>{msg.content}</Text>
-                  </View>
-                )}
+                {!!msg.content && <View style={b.caption}><Text style={b.captionTxt}>{msg.content}</Text></View>}
                 <View style={b.imgFooter}>
                   <Text style={b.imgTime}>{fmtTime(msg.createdAt)}</Text>
                   {isMe && <CheckIcon state={check} />}
@@ -585,18 +580,14 @@ function Bubble({ msg, isMe, onLong, onDouble }: {
               </View>
             </TouchableOpacity>
           </RNAnimated.View>
-          {msg.reaction && (
-            <View style={[b.badge, isMe ? b.badgeMe : b.badgeOther]}>
-              <Text style={{ fontSize: 13 }}>{msg.reaction}</Text>
-            </View>
-          )}
+          {msg.reaction && <View style={[b.badge, isMe ? b.badgeMe : b.badgeOther]}><Text style={{ fontSize: 13 }}>{msg.reaction}</Text></View>}
         </View>
-      </View>
+      </RNAnimated.View>
     );
   }
 
   return (
-    <View style={[b.row, isMe ? b.me : b.other]}>
+    <RNAnimated.View style={[b.row, isMe ? b.me : b.other, { backgroundColor: bgColor }]}>
       <View style={b.wrap}>
         <RNAnimated.View style={{ transform: [{ scale }] }}>
           <TouchableOpacity onPress={tap} onLongPress={() => onLong(msg)} activeOpacity={0.85} delayLongPress={360}>
@@ -604,28 +595,22 @@ function Bubble({ msg, isMe, onLong, onDouble }: {
               ? <LinearGradient colors={[C.bubble1, C.bubble2]} start={{x:0,y:0}} end={{x:1,y:1}} style={[b.bubble, b.bubbleMe]}>
                   <Text style={b.txtMe}>{msg.content}</Text>
                 </LinearGradient>
-              : <View style={[b.bubble, b.bubbleOther]}>
-                  <Text style={b.txtOther}>{msg.content}</Text>
-                </View>
+              : <View style={[b.bubble, b.bubbleOther]}><Text style={b.txtOther}>{msg.content}</Text></View>
             }
           </TouchableOpacity>
         </RNAnimated.View>
-        {msg.reaction && (
-          <View style={[b.badge, isMe ? b.badgeMe : b.badgeOther]}>
-            <Text style={{ fontSize: 13 }}>{msg.reaction}</Text>
-          </View>
-        )}
+        {msg.reaction && <View style={[b.badge, isMe ? b.badgeMe : b.badgeOther]}><Text style={{ fontSize: 13 }}>{msg.reaction}</Text></View>}
         <View style={[b.meta, isMe ? b.metaMe : b.metaOther]}>
           <Text style={b.time}>{fmtTime(msg.createdAt)}</Text>
           {isMe && <CheckIcon state={check} />}
         </View>
       </View>
-    </View>
+    </RNAnimated.View>
   );
 }
 
 const b = StyleSheet.create({
-  row:         { flexDirection: 'row', alignItems: 'flex-end', marginBottom: 2, paddingHorizontal: 14 },
+  row:         { flexDirection: 'row', alignItems: 'flex-end', marginBottom: 2, paddingHorizontal: 14, paddingVertical: 2 },
   me:          { justifyContent: 'flex-end' },
   other:       { justifyContent: 'flex-start' },
   wrap:        { maxWidth: '78%', gap: 3 },
@@ -675,16 +660,17 @@ export default function ChatScreen({ route, navigation }: any) {
   const [reportOpen,     setReportOpen]     = useState(false);
   const [isBlocked,      setIsBlocked]      = useState(false);
   const [toastMsg,       setToastMsg]       = useState<{ text: string; type: 'info'|'success'|'error' } | null>(null);
+  // Index da primeira mensagem não lida — para scroll e highlight
+  const [firstUnreadIdx, setFirstUnreadIdx] = useState<number>(-1);
 
-  const flatRef     = useRef<FlatList>(null);
-  const typingTimer = useRef<any>(null);
-  const isTypingRef = useRef(false);
-  const menuBtnRef  = useRef<View>(null);
-  const toastTimer  = useRef<any>(null);
-  const hasContent  = input.trim().length > 0 || selectedImage !== null;
-
-  // Chave do AsyncStorage para salvar o rascunho desta conversa
-  const DRAFT_KEY = `@venus:draft:${conversation.id}`;
+  const flatRef       = useRef<FlatList>(null);
+  const typingTimer   = useRef<any>(null);
+  const isTypingRef   = useRef(false);
+  const menuBtnRef    = useRef<View>(null);
+  const toastTimer    = useRef<any>(null);
+  const scrolledOnce  = useRef(false);
+  const hasContent    = input.trim().length > 0 || selectedImage !== null;
+  const DRAFT_KEY     = `@venus:draft:${conversation.id}`;
 
   const showToast = useCallback((text: string, type: 'info'|'success'|'error' = 'info', ms = 2800) => {
     clearTimeout(toastTimer.current);
@@ -692,34 +678,44 @@ export default function ChatScreen({ route, navigation }: any) {
     toastTimer.current = setTimeout(() => setToastMsg(null), ms);
   }, []);
 
-  // ── Carregar rascunho salvo ────────────────────────────────────────────
+  // ── Interceptar botão voltar para fechar modais primeiro ───────────────
   useEffect(() => {
-    AsyncStorage.getItem(DRAFT_KEY)
-      .then(saved => { if (saved) setInput(saved); })
-      .catch(() => {});
+    const unsub = navigation.addListener('beforeRemove', (e: any) => {
+      if (sheetOpen) {
+        e.preventDefault();
+        setSheetOpen(false);
+        setTimeout(() => setSelectedMsg(null), 300);
+      } else if (reportOpen) {
+        e.preventDefault();
+        setReportOpen(false);
+      } else if (menuOpen) {
+        e.preventDefault();
+        setMenuOpen(false);
+      }
+    });
+    return unsub;
+  }, [navigation, sheetOpen, reportOpen, menuOpen]);
+
+  // ── Draft ──────────────────────────────────────────────────────────────
+  useEffect(() => {
+    AsyncStorage.getItem(DRAFT_KEY).then(s => { if (s) setInput(s); }).catch(() => {});
   }, [DRAFT_KEY]);
 
-  // ── Salvar rascunho ao digitar ─────────────────────────────────────────
-  // Debounce de 500ms para não salvar a cada tecla
   const saveDraftTimer = useRef<any>(null);
   const saveDraft = useCallback((text: string) => {
     clearTimeout(saveDraftTimer.current);
     saveDraftTimer.current = setTimeout(() => {
-      if (text.trim()) {
-        AsyncStorage.setItem(DRAFT_KEY, text).catch(() => {});
-      } else {
-        AsyncStorage.removeItem(DRAFT_KEY).catch(() => {});
-      }
+      if (text.trim()) AsyncStorage.setItem(DRAFT_KEY, text).catch(() => {});
+      else AsyncStorage.removeItem(DRAFT_KEY).catch(() => {});
     }, 500);
   }, [DRAFT_KEY]);
 
-  // ── Checar bloqueio ────────────────────────────────────────────────────
+  // ── Bloqueio ───────────────────────────────────────────────────────────
   useEffect(() => {
     if (!other?.id) return;
     api.get('/blocks')
       .then(({ data }) => {
-        const blocked = Array.isArray(data) && data.some((bl: any) => bl.blockedId === other.id);
-        setIsBlocked(blocked);
+        setIsBlocked(Array.isArray(data) && data.some((bl: any) => bl.blockedId === other.id));
       })
       .catch(() => {});
   }, [other?.id]);
@@ -728,7 +724,7 @@ export default function ChatScreen({ route, navigation }: any) {
   const loadMessages = useCallback(async () => {
     try {
       const { data } = await api.get(`/messages/conversations/${conversation.id}`);
-      const msgs = (data.messages || data || []).map((m: any) => ({
+      const msgs: Message[] = (data.messages || data || []).map((m: any) => ({
         ...m,
         isRead:      m.isRead      ?? false,
         deliveredAt: m.deliveredAt ?? null,
@@ -736,10 +732,31 @@ export default function ChatScreen({ route, navigation }: any) {
         reaction:    m.reaction    ?? null,
       }));
       setMessages(msgs);
-      setTimeout(() => flatRef.current?.scrollToEnd({ animated: false }), 100);
+
+      // Calcular primeira mensagem não lida (do outro usuário)
+      const firstUnread = msgs.findIndex(
+        m => !m.isRead && m.senderId !== user?.id
+      );
+      setFirstUnreadIdx(firstUnread);
+
+      // Scroll: se há não lidas, rola até elas; senão vai ao fim
+      setTimeout(() => {
+        if (!scrolledOnce.current) {
+          scrolledOnce.current = true;
+          if (firstUnread > 0) {
+            flatRef.current?.scrollToIndex({
+              index: firstUnread,
+              animated: false,
+              viewPosition: 0.2,
+            });
+          } else {
+            flatRef.current?.scrollToEnd({ animated: false });
+          }
+        }
+      }, 150);
     } catch {}
     finally { setLoading(false); }
-  }, [conversation.id]);
+  }, [conversation.id, user?.id]);
 
   // ── Presença ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -759,8 +776,7 @@ export default function ChatScreen({ route, navigation }: any) {
 
     const unsubMsg = socketService.onNewMessage((msg: any) => {
       setMessages(prev => [...prev, {
-        ...msg,
-        isRead:      false,
+        ...msg, isRead: false,
         deliveredAt: msg.deliveredAt ?? null,
         imageUrl:    msg.imageUrl    ?? null,
         reaction:    msg.reaction    ?? null,
@@ -785,16 +801,11 @@ export default function ChatScreen({ route, navigation }: any) {
       ));
     });
 
-    // Reação do outro usuário em tempo real
     socket.on('message_reaction', ({ messageId, reaction }: { messageId: string; reaction: string | null }) => {
-      setMessages(prev => prev.map(m =>
-        m.id === messageId ? { ...m, reaction } : m
-      ));
+      setMessages(prev => prev.map(m => m.id === messageId ? { ...m, reaction } : m));
     });
 
-    socket.on('message_blocked', () => {
-      showToast('Não foi possível enviar a mensagem', 'error');
-    });
+    socket.on('message_blocked', () => showToast('Não foi possível enviar a mensagem', 'error'));
 
     const onPresence = ({ userId, status }: { userId: string; status: PresenceStatus }) => {
       if (userId === other?.id) setOtherPresence(status);
@@ -813,7 +824,7 @@ export default function ChatScreen({ route, navigation }: any) {
     };
   }, [conversation.id, loadMessages, other?.id, user?.id, showToast]);
 
-  // ── Enviar mensagem ────────────────────────────────────────────────────
+  // ── Enviar ─────────────────────────────────────────────────────────────
   const handleSend = useCallback(async () => {
     const content = input.trim();
     if ((!content && !selectedImage) || isBlocked) return;
@@ -825,9 +836,8 @@ export default function ChatScreen({ route, navigation }: any) {
 
     const tempId = `temp-${Date.now()}`;
     const temp: Message = {
-      id: tempId, senderId: user?.id || '',
-      content, imageUrl: imageToSend,
-      createdAt: new Date().toISOString(),
+      id: tempId, senderId: user?.id || '', content,
+      imageUrl: imageToSend, createdAt: new Date().toISOString(),
       isRead: false, deliveredAt: null,
     };
     setMessages(prev => [...prev, temp]);
@@ -839,9 +849,7 @@ export default function ChatScreen({ route, navigation }: any) {
       setUploadingImage(true);
       try {
         finalImageUrl = await uploadImage(imageToSend, 'messages');
-        setMessages(prev => prev.map(m =>
-          m.id === tempId ? { ...m, imageUrl: finalImageUrl } : m
-        ));
+        setMessages(prev => prev.map(m => m.id === tempId ? { ...m, imageUrl: finalImageUrl } : m));
       } catch (e) {
         console.error('[Upload]', e);
         showToast('Erro ao enviar imagem', 'error');
@@ -854,16 +862,10 @@ export default function ChatScreen({ route, navigation }: any) {
 
     const socket = socketService.getSocket();
     if (socket?.connected) {
-      socket.emit('send_message', {
-        conversationId: conversation.id,
-        content,
-        imageUrl: finalImageUrl,
-      });
+      socket.emit('send_message', { conversationId: conversation.id, content, imageUrl: finalImageUrl });
     } else {
       try {
-        const { data } = await api.post(`/messages/conversations/${conversation.id}`, {
-          content, imageUrl: finalImageUrl,
-        });
+        const { data } = await api.post(`/messages/conversations/${conversation.id}`, { content, imageUrl: finalImageUrl });
         setMessages(prev => prev.map(m => m.id === tempId
           ? { ...data, isRead: false, deliveredAt: data.deliveredAt ?? null, imageUrl: data.imageUrl ?? finalImageUrl }
           : m
@@ -891,7 +893,6 @@ export default function ChatScreen({ route, navigation }: any) {
     }, 1500);
   };
 
-  // ── Imagem ─────────────────────────────────────────────────────────────
   const handlePickImage = useCallback(async () => {
     if (isBlocked) return;
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -904,7 +905,6 @@ export default function ChatScreen({ route, navigation }: any) {
     setSelectedImage(result.assets[0].uri);
   }, [isBlocked, showToast]);
 
-  // ── Menu ───────────────────────────────────────────────────────────────
   const openMenu = () => {
     menuBtnRef.current?.measure((_x, _y, _w, h, _px, py) => {
       setMenuAnchorY(py + h);
@@ -912,37 +912,27 @@ export default function ChatScreen({ route, navigation }: any) {
     });
   };
 
-  // ── Block ──────────────────────────────────────────────────────────────
   const handleBlock = useCallback(() => {
+    const name = other?.displayName || other?.username;
     if (isBlocked) {
-      Alert.alert('Desbloquear', `Desbloquear ${other?.displayName || other?.username}?`, [
+      Alert.alert('Desbloquear', `Desbloquear ${name}?`, [
         { text: 'Cancelar', style: 'cancel' },
         { text: 'Desbloquear', onPress: async () => {
-          try {
-            await api.delete(`/blocks/${other.id}`);
-            setIsBlocked(false);
-            showToast(`${other?.displayName || other?.username} desbloqueado`, 'success');
-          } catch { showToast('Erro ao desbloquear', 'error'); }
+          try { await api.delete(`/blocks/${other.id}`); setIsBlocked(false); showToast(`${name} desbloqueado`, 'success'); }
+          catch { showToast('Erro ao desbloquear', 'error'); }
         }},
       ]);
     } else {
-      Alert.alert('Bloquear', `Bloquear ${other?.displayName || other?.username}?`, [
+      Alert.alert('Bloquear', `Bloquear ${name}?`, [
         { text: 'Cancelar', style: 'cancel' },
         { text: 'Bloquear', style: 'destructive', onPress: async () => {
-          try {
-            await api.post(`/blocks/${other.id}`);
-            setIsBlocked(true);
-            showToast(`${other?.displayName || other?.username} bloqueado`, 'success');
-          } catch (e: any) {
-            if (e?.response?.status === 409) setIsBlocked(true);
-            else showToast('Erro ao bloquear', 'error');
-          }
+          try { await api.post(`/blocks/${other.id}`); setIsBlocked(true); showToast(`${name} bloqueado`, 'success'); }
+          catch (e: any) { if (e?.response?.status === 409) setIsBlocked(true); else showToast('Erro ao bloquear', 'error'); }
         }},
       ]);
     }
   }, [isBlocked, other, showToast]);
 
-  // ── Report ─────────────────────────────────────────────────────────────
   const submitReport = useCallback(async (reason: ReportReason, description: string) => {
     try {
       await api.post(`/reports/user/${other.id}`, { reason, description: description || undefined });
@@ -951,101 +941,79 @@ export default function ChatScreen({ route, navigation }: any) {
     } catch { showToast('Erro ao enviar denúncia', 'error'); }
   }, [other?.id, showToast]);
 
-  // ── Clear ──────────────────────────────────────────────────────────────
   const handleClearChat = useCallback(() => {
     Alert.alert('Limpar conversa', 'As mensagens serão removidas permanentemente para você.', [
       { text: 'Cancelar', style: 'cancel' },
       { text: 'Limpar', style: 'destructive', onPress: async () => {
-        try {
-          await api.delete(`/messages/conversations/${conversation.id}/clear`);
-          setMessages([]);
-          showToast('Conversa limpa', 'success');
-        } catch { showToast('Erro ao limpar conversa', 'error'); }
+        try { await api.delete(`/messages/conversations/${conversation.id}/clear`); setMessages([]); showToast('Conversa limpa', 'success'); }
+        catch { showToast('Erro ao limpar', 'error'); }
       }},
     ]);
   }, [conversation.id, showToast]);
 
-  // ── Reações — persiste no banco + emite socket ─────────────────────────
+  // ── Long press — dismiss teclado ANTES de abrir sheet ─────────────────
+  const handleLong = useCallback((msg: Message) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    Keyboard.dismiss(); // garante que o sheet abre acima do teclado
+    setTimeout(() => {
+      setSelectedMsg(msg);
+      setSheetOpen(true);
+    }, 100); // aguarda teclado fechar antes de animar o sheet
+  }, []);
+
   const handleDouble = useCallback((msg: Message) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     const newReaction = msg.reaction === '❤️' ? null : '❤️';
-    // Otimista
     setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, reaction: newReaction } : m));
-    // Persistir
     if (!msg.id.startsWith('temp-')) {
       api.patch(`/messages/${msg.id}/reaction`, { reaction: newReaction }).catch(() => {});
-      // Notificar o outro via socket
-      const socket = socketService.getSocket();
-      socket?.emit('message_reaction', {
-        conversationId: conversation.id,
-        messageId: msg.id,
-        reaction: newReaction,
+      socketService.getSocket()?.emit('message_reaction', {
+        conversationId: conversation.id, messageId: msg.id, reaction: newReaction,
       });
     }
   }, [conversation.id]);
 
-  // ── Long press — abre sheet ────────────────────────────────────────────
-  const handleLong = useCallback((msg: Message) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-    setSelectedMsg(msg);
-    setSheetOpen(true);
-  }, []);
-
-  // ── Fechar sheet ───────────────────────────────────────────────────────
   const closeSheet = useCallback(() => {
     setSheetOpen(false);
-    // Limpa selectedMsg após a animação de fechamento terminar
     setTimeout(() => setSelectedMsg(null), 300);
   }, []);
 
-  // ── Reação via sheet — persiste ────────────────────────────────────────
   const applyReaction = useCallback((emoji: string) => {
     if (!selectedMsg) return;
     const msgId = selectedMsg.id;
-    const prev  = selectedMsg.reaction;
-    const newReaction = prev === emoji ? null : emoji;
-
-    // Fecha PRIMEIRO, depois atualiza — evita re-abertura do sheet
+    const newReaction = selectedMsg.reaction === emoji ? null : emoji;
     closeSheet();
-
     setTimeout(() => {
       setMessages(msgs => msgs.map(m => m.id === msgId ? { ...m, reaction: newReaction } : m));
       if (!msgId.startsWith('temp-')) {
         api.patch(`/messages/${msgId}/reaction`, { reaction: newReaction }).catch(() => {});
-        const socket = socketService.getSocket();
-        socket?.emit('message_reaction', {
-          conversationId: conversation.id,
-          messageId: msgId,
-          reaction: newReaction,
+        socketService.getSocket()?.emit('message_reaction', {
+          conversationId: conversation.id, messageId: msgId, reaction: newReaction,
         });
       }
     }, 50);
   }, [selectedMsg, closeSheet, conversation.id]);
 
-  // ── Delete ─────────────────────────────────────────────────────────────
   const deleteMessage = useCallback(async (_fe: boolean) => {
     if (!selectedMsg) return;
     const msgId = selectedMsg.id;
     closeSheet();
-    setMessages(prev => prev.map(m =>
-      m.id === msgId ? { ...m, isDeleted: true, content: '' } : m
-    ));
+    setMessages(prev => prev.map(m => m.id === msgId ? { ...m, isDeleted: true, content: '' } : m));
     if (msgId.startsWith('temp-')) return;
-    try {
-      await api.delete(`/messages/${msgId}`);
-    } catch {
-      setMessages(prev => prev.map(m =>
-        m.id === msgId ? { ...m, isDeleted: false } : m
-      ));
+    try { await api.delete(`/messages/${msgId}`); }
+    catch {
+      setMessages(prev => prev.map(m => m.id === msgId ? { ...m, isDeleted: false } : m));
       showToast('Erro ao apagar mensagem', 'error');
     }
   }, [selectedMsg, closeSheet, showToast]);
 
-  // ── Render ─────────────────────────────────────────────────────────────
   const isMe = (msg: Message) => msg.senderId === user?.id;
 
   const renderItem = useCallback(({ item, index }: { item: Message; index: number }) => {
-    const mine = isMe(item);
+    const mine        = isMe(item);
+    const isFirstUnread = index === firstUnreadIdx;
+    const highlighted = firstUnreadIdx >= 0 && index >= firstUnreadIdx && !mine;
+
     return (
       <View>
         {newDay(messages, index) && (
@@ -1055,10 +1023,19 @@ export default function ChatScreen({ route, navigation }: any) {
             <View style={s.dayLine} />
           </View>
         )}
-        <Bubble msg={item} isMe={mine} onLong={handleLong} onDouble={handleDouble} />
+        {/* Header "Mensagens não lidas" — aparece antes da primeira não lida */}
+        {isFirstUnread && (
+          <View style={s.unreadHeader}>
+            <View style={s.unreadLine} />
+            <Text style={s.unreadTxt}>Mensagens não lidas</Text>
+            <View style={s.unreadLine} />
+          </View>
+        )}
+        <Bubble msg={item} isMe={mine} highlighted={highlighted}
+          onLong={handleLong} onDouble={handleDouble} />
       </View>
     );
-  }, [messages, handleLong, handleDouble, user?.id]);
+  }, [messages, firstUnreadIdx, handleLong, handleDouble, user?.id]);
 
   const headerSub = useMemo(() => {
     if (otherTyping) return <Text style={[s.hSub, { color: C.primaryLt }]}>digitando...</Text>;
@@ -1101,13 +1078,21 @@ export default function ChatScreen({ route, navigation }: any) {
         {loading ? (
           <View style={s.loading}><Text style={{ color: C.textTer, fontSize: 13 }}>Carregando...</Text></View>
         ) : (
-          <FlatList ref={flatRef} data={messages} keyExtractor={item => item.id}
+          <FlatList
+            ref={flatRef}
+            data={messages}
+            keyExtractor={item => item.id}
             renderItem={renderItem}
             contentContainerStyle={{ paddingVertical: 16, gap: 2, flexGrow: 1 }}
-            onContentSizeChange={() => flatRef.current?.scrollToEnd({ animated: false })}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
+            onScrollToIndexFailed={({ index }) => {
+              // Fallback se o index não estiver disponível ainda
+              setTimeout(() => {
+                flatRef.current?.scrollToIndex({ index, animated: false, viewPosition: 0.2 });
+              }, 300);
+            }}
             ListEmptyComponent={
               <View style={s.empty}>
                 <Text style={s.emptyTitle}>Say hello.</Text>
@@ -1197,12 +1182,19 @@ const s = StyleSheet.create({
   presDot:            { width: 7, height: 7, borderRadius: 3.5 },
   divider:            { height: StyleSheet.hairlineWidth, backgroundColor: C.border },
   loading:            { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  // Unread header
+  unreadHeader:       { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 28, paddingVertical: 10 },
+  unreadLine:         { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: C.cyan + '55' },
+  unreadTxt:          { fontSize: 11, fontWeight: '600', color: C.cyan, opacity: 0.8 },
+  // Day divider
   dayRow:             { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 28, paddingVertical: 14 },
   dayLine:            { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: C.border },
   dayTxt:             { fontSize: 11, fontWeight: '600', color: C.textTer, letterSpacing: 0.3 },
+  // Empty
   empty:              { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 40, gap: 12 },
   emptyTitle:         { fontSize: 32, fontWeight: '800', color: C.text, letterSpacing: -0.8 },
   emptySub:           { fontSize: 15, color: C.textSec, textAlign: 'center', lineHeight: 22 },
+  // Input
   inputBar:           { paddingHorizontal: 14, paddingTop: 8, backgroundColor: C.bg },
   previewWrap:        { marginBottom: 8, borderRadius: 14, overflow: 'hidden', alignSelf: 'flex-start' },
   previewImg:         { width: 120, height: 120 },
