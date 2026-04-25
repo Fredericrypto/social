@@ -1,20 +1,13 @@
 /**
- * ChatScreen.tsx — Venus v7
+ * ChatScreen.tsx — Venus v9
  *
- * [1] 3 estados de check:
- *     ✓  slate = enviado ao servidor (deliveredAt null, isRead false)
- *     ✓✓ slate = entregue ao dispositivo (deliveredAt preenchido, isRead false)
- *     ✓✓ cyan  = lido (isRead true)
- *     Eventos socket: 'message_delivered' → deliveredAt | 'messages_read' → isRead
- *
- * [2] Hard block:
- *     - Input desabilitado + label "Usuário bloqueado" quando isBlocked=true
- *     - Backend rejeita mensagem e emite 'message_blocked'
- *     - Menu mostra Bloquear/Desbloquear dinamicamente
- *
- * [3] Limpar conversa persistente:
- *     DELETE /messages/conversations/:id/clear
- *     Backend seta lastClearedAt — mensagens antigas não voltam ao reabrir
+ * Mudanças em relação à v8:
+ *  [1] Avatares removidos das bolhas — layout mais limpo
+ *  [2] Preview de imagem no input com legenda antes do envio
+ *  [3] Upload real para Supabase Storage (bucket: messages)
+ *  [4] Botão Voltar com GlowBtn slate
+ *  [5] Botão + centralizado verticalmente com o input
+ *  [6] imageUrl persistido no banco e carregado no histórico
  */
 
 import React, {
@@ -27,6 +20,7 @@ import {
   Dimensions, ScrollView,
 } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
+import { KeyboardAvoidingView as RNKeyboardAvoidingView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
@@ -42,6 +36,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuthStore } from '../../store/auth.store';
 import { api } from '../../services/api';
 import { socketService } from '../../services/socket.service';
+import { uploadImage } from '../../services/supabase.service';
 import {
   PresenceStatus, PRESENCE_COLORS, PRESENCE_LABELS,
 } from '../../services/presence.service';
@@ -76,8 +71,8 @@ type CheckState = 'sent' | 'delivered' | 'read';
 interface Message {
   id:          string;
   senderId:    string;
-  type:        'text' | 'image';
   content:     string;
+  imageUrl?:   string | null;
   createdAt:   string;
   deliveredAt: string | null;
   isRead:      boolean;
@@ -91,17 +86,12 @@ function getCheckState(msg: Message): CheckState {
   return 'sent';
 }
 
-// isRead=true      → ✓✓ cyan
-// deliveredAt set  → ✓✓ slate
-// else             → ✓  slate
 function CheckIcon({ state }: { state: CheckState }) {
-  const isDouble = state !== 'sent';
-  const color    = state === 'read' ? C.cyan : C.primaryLt;
   return (
     <Ionicons
-      name={isDouble ? 'checkmark-done' : 'checkmark'}
+      name={state !== 'sent' ? 'checkmark-done' : 'checkmark'}
       size={12}
-      color={color}
+      color={state === 'read' ? C.cyan : C.primaryLt}
     />
   );
 }
@@ -152,7 +142,7 @@ const ts = StyleSheet.create({
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
-//  GLOW BTN
+//  GLOW BTN — reutilizado em Voltar, ···, + e Send
 // ═════════════════════════════════════════════════════════════════════════════
 function GlowBtn({ onPress, children, size = 36, radius = 12, disabled = false }: {
   onPress: () => void; children: React.ReactNode;
@@ -279,12 +269,10 @@ function OptionsMenu({ visible, anchorY, isBlocked, onReport, onBlock, onClear, 
   if (!visible) return null;
 
   const items = [
-    { icon: 'flag-outline' as const,
-      label: 'Denunciar', color: C.text, action: onReport },
+    { icon: 'flag-outline' as const, label: 'Denunciar', color: C.text, action: onReport },
     { icon: (isBlocked ? 'lock-open-outline' : 'ban-outline') as any,
       label: isBlocked ? 'Desbloquear' : 'Bloquear', color: C.danger, action: onBlock },
-    { icon: 'trash-outline' as const,
-      label: 'Limpar Conversa', color: C.danger, action: onClear },
+    { icon: 'trash-outline' as const, label: 'Limpar Conversa', color: C.danger, action: onClear },
   ];
 
   return (
@@ -308,7 +296,6 @@ function OptionsMenu({ visible, anchorY, isBlocked, onReport, onBlock, onClear, 
     </View>
   );
 }
-
 const om = StyleSheet.create({
   menu:  { position: 'absolute', width: 210, borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: C.borderHi },
   inner: { backgroundColor: 'rgba(13,16,24,0.82)' },
@@ -348,8 +335,8 @@ function ReportModal({ visible, targetName, onSubmit, onClose }: {
   }, [visible, ty, op]);
 
   const pan = useRef(PanResponder.create({
-    onStartShouldSetPanResponder: () => true,
-    onMoveShouldSetPanResponder: (_, g) => g.dy > 4,
+    onStartShouldSetPanResponder: (_, g) => g.dy > 4,
+    onMoveShouldSetPanResponder:  (_, g) => g.dy > 4,
     onPanResponderMove:    (_, g) => { if (g.dy > 0) ty.setValue(g.dy); },
     onPanResponderRelease: (_, g) => {
       if (g.dy > 80 || g.vy > 0.5) onClose();
@@ -364,66 +351,78 @@ function ReportModal({ visible, targetName, onSubmit, onClose }: {
       <RNAnimated.View style={[rm.backdrop, { opacity: op }]}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
       </RNAnimated.View>
-      <RNAnimated.View style={[rm.sheet, { paddingBottom: insets.bottom + 16, transform: [{ translateY: ty }] }]}>
-        <View {...pan.panHandlers} style={rm.handleArea}>
-          <View style={rm.handle} />
-        </View>
-        <Text style={rm.title}>Denunciar usuário</Text>
-        <Text style={rm.sub}>Qual o problema com {targetName}?</Text>
-        <ScrollView style={rm.scroll} showsVerticalScrollIndicator={false}>
-          {REPORT_REASONS.map(r => {
-            const active = selectedReason === r.value;
-            return (
-              <TouchableOpacity key={r.value} style={rm.reasonBtn}
-                onPress={() => setSelectedReason(r.value as ReportReason)} activeOpacity={0.7}>
-                <View style={[rm.radio, active && rm.radioActive]}>
-                  {active && <View style={rm.radioDot} />}
-                </View>
-                <Text style={[rm.reasonTxt, active && { color: C.text }]}>{r.label}</Text>
-              </TouchableOpacity>
-            );
-          })}
-          <View style={rm.descWrap}>
-            <TextInput style={rm.descInput} placeholder="Detalhes adicionais (opcional)..."
-              placeholderTextColor={C.textTer} value={description}
-              onChangeText={setDescription} multiline maxLength={500}
-              underlineColorAndroid="transparent" />
+      <RNKeyboardAvoidingView
+        style={rm.kavWrap}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        pointerEvents="box-none"
+      >
+        <RNAnimated.View style={[rm.sheet, { paddingBottom: insets.bottom + 16, transform: [{ translateY: ty }] }]}>
+          <View {...pan.panHandlers} style={rm.handleArea}>
+            <View style={rm.handle} />
           </View>
-        </ScrollView>
-        <TouchableOpacity style={[rm.submitBtn, !selectedReason && { opacity: 0.4 }]}
-          onPress={async () => { if (!selectedReason) return; setSubmitting(true); await onSubmit(selectedReason, description.trim()); setSubmitting(false); }}
-          disabled={!selectedReason || submitting} activeOpacity={0.85}>
-          <Text style={rm.submitTxt}>{submitting ? 'Enviando...' : 'Enviar denúncia'}</Text>
-        </TouchableOpacity>
-      </RNAnimated.View>
+          <Text style={rm.title}>Denunciar usuário</Text>
+          <Text style={rm.sub}>Qual o problema com {targetName}?</Text>
+          <ScrollView style={rm.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+            {REPORT_REASONS.map(r => {
+              const active = selectedReason === r.value;
+              return (
+                <TouchableOpacity key={r.value} style={rm.reasonBtn}
+                  onPress={() => setSelectedReason(r.value as ReportReason)} activeOpacity={0.7}>
+                  <View style={[rm.radio, active && rm.radioActive]}>
+                    {active && <View style={rm.radioDot} />}
+                  </View>
+                  <Text style={[rm.reasonTxt, active && { color: C.text }]}>{r.label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+            <View style={rm.descWrap}>
+              <TextInput style={rm.descInput} placeholder="Detalhes adicionais (opcional)..."
+                placeholderTextColor={C.textTer} value={description}
+                onChangeText={setDescription} multiline maxLength={500}
+                underlineColorAndroid="transparent" />
+            </View>
+          </ScrollView>
+          <TouchableOpacity
+            style={[rm.submitBtn, !selectedReason && { opacity: 0.4 }]}
+            onPress={async () => {
+              if (!selectedReason) return;
+              setSubmitting(true);
+              await onSubmit(selectedReason, description.trim());
+              setSubmitting(false);
+            }}
+            disabled={!selectedReason || submitting} activeOpacity={0.85}>
+            <Text style={rm.submitTxt}>{submitting ? 'Enviando...' : 'Enviar denúncia'}</Text>
+          </TouchableOpacity>
+        </RNAnimated.View>
+      </RNKeyboardAvoidingView>
     </View>
   );
 }
-
 const rm = StyleSheet.create({
-  backdrop:   { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.65)' },
-  sheet:      { position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: C.bg, borderTopLeftRadius: 28, borderTopRightRadius: 28, borderTopWidth: 1, borderTopColor: C.borderHi, paddingTop: 8, maxHeight: SH * 0.85 },
-  handleArea: { alignItems: 'center', paddingVertical: 10 },
-  handle:     { width: 40, height: 4, borderRadius: 2, backgroundColor: C.border },
-  title:      { fontSize: 18, fontWeight: '700', color: C.text, paddingHorizontal: 24, marginBottom: 4 },
-  sub:        { fontSize: 13, color: C.textSec, paddingHorizontal: 24, marginBottom: 16 },
-  scroll:     { paddingHorizontal: 24 },
-  reasonBtn:  { flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border },
-  radio:      { width: 20, height: 20, borderRadius: 10, borderWidth: 1.5, borderColor: C.textTer, alignItems: 'center', justifyContent: 'center' },
-  radioActive:{ borderColor: C.cyan },
-  radioDot:   { width: 10, height: 10, borderRadius: 5, backgroundColor: C.cyan },
-  reasonTxt:  { fontSize: 15, color: C.textSec, flex: 1 },
-  descWrap:   { marginTop: 16, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 10, marginBottom: 8 },
-  descInput:  { fontSize: 14, color: C.text, minHeight: 72, maxHeight: 120 },
-  submitBtn:  { marginHorizontal: 24, marginTop: 16, backgroundColor: C.danger, borderRadius: 50, height: 52, alignItems: 'center', justifyContent: 'center' },
-  submitTxt:  { color: '#fff', fontSize: 15, fontWeight: '700' },
+  backdrop:    { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.65)' },
+  kavWrap:     { position: 'absolute', left: 0, right: 0, bottom: 0, top: 0, justifyContent: 'flex-end' } as any,
+  sheet:       { backgroundColor: C.bg, borderTopLeftRadius: 28, borderTopRightRadius: 28, borderTopWidth: 1, borderTopColor: C.borderHi, paddingTop: 8, maxHeight: SH * 0.85 },
+  handleArea:  { alignItems: 'center', paddingVertical: 10 },
+  handle:      { width: 40, height: 4, borderRadius: 2, backgroundColor: C.border },
+  title:       { fontSize: 18, fontWeight: '700', color: C.text, paddingHorizontal: 24, marginBottom: 4 },
+  sub:         { fontSize: 13, color: C.textSec, paddingHorizontal: 24, marginBottom: 16 },
+  scroll:      { paddingHorizontal: 24, maxHeight: SH * 0.45 },
+  reasonBtn:   { flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border },
+  radio:       { width: 20, height: 20, borderRadius: 10, borderWidth: 1.5, borderColor: C.textTer, alignItems: 'center', justifyContent: 'center' },
+  radioActive: { borderColor: C.cyan },
+  radioDot:    { width: 10, height: 10, borderRadius: 5, backgroundColor: C.cyan },
+  reasonTxt:   { fontSize: 15, color: C.textSec, flex: 1 },
+  descWrap:    { marginTop: 16, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 10, marginBottom: 16 },
+  descInput:   { fontSize: 14, color: C.text, minHeight: 72, maxHeight: 120 },
+  submitBtn:   { marginHorizontal: 24, backgroundColor: C.danger, borderRadius: 50, height: 52, alignItems: 'center', justifyContent: 'center' },
+  submitTxt:   { color: '#fff', fontSize: 15, fontWeight: '700' },
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
-//  BALÃO
+//  BALÃO — sem avatar, com imageUrl
 // ═════════════════════════════════════════════════════════════════════════════
-function Bubble({ msg, isMe, showAvatar, other, onLong, onDouble }: {
-  msg: Message; isMe: boolean; showAvatar: boolean; other: any;
+function Bubble({ msg, isMe, onLong, onDouble }: {
+  msg: Message; isMe: boolean;
   onLong: (m: Message) => void; onDouble: (m: Message) => void;
 }) {
   const lastTap = useRef(0);
@@ -444,25 +443,26 @@ function Bubble({ msg, isMe, showAvatar, other, onLong, onDouble }: {
 
   if (msg.isDeleted) return (
     <View style={[b.row, isMe ? b.me : b.other]}>
-      {!isMe && <View style={{ width: 28 }} />}
       <View style={b.deleted}><Text style={b.deletedTxt}>Mensagem apagada</Text></View>
     </View>
   );
 
-  if (msg.type === 'image') {
-    const imgW = SW * 0.62; const imgH = imgW * 1.1;
+  // Bolha com imagem (+ legenda opcional)
+  if (msg.imageUrl) {
+    const imgW = SW * 0.65;
+    const imgH = imgW * 1.05;
     return (
       <View style={[b.row, isMe ? b.me : b.other]}>
-        {!isMe && (
-          <View style={{ width: 28, alignSelf: 'flex-end', marginBottom: msg.reaction ? 14 : 0 }}>
-            {showAvatar && <Avatar uri={other?.avatarUrl} name={other?.displayName} size={26} />}
-          </View>
-        )}
         <View style={b.wrap}>
           <RNAnimated.View style={{ transform: [{ scale }] }}>
             <TouchableOpacity onPress={tap} onLongPress={() => onLong(msg)} activeOpacity={0.88} delayLongPress={360}>
-              <View style={[b.imgBubble, { width: imgW, height: imgH }]}>
-                <Image source={{ uri: msg.content }} style={b.img} resizeMode="cover" />
+              <View style={[b.imgBubble, isMe ? b.imgBubbleMe : b.imgBubbleOther, { width: imgW }]}>
+                <Image source={{ uri: msg.imageUrl }} style={[b.img, { height: imgH }]} resizeMode="cover" />
+                {!!msg.content && (
+                  <View style={b.imgCaption}>
+                    <Text style={b.imgCaptionTxt}>{msg.content}</Text>
+                  </View>
+                )}
                 <View style={b.imgFooter}>
                   <Text style={b.imgTime}>{fmtTime(msg.createdAt)}</Text>
                   {isMe && <CheckIcon state={check} />}
@@ -480,13 +480,9 @@ function Bubble({ msg, isMe, showAvatar, other, onLong, onDouble }: {
     );
   }
 
+  // Bolha de texto
   return (
     <View style={[b.row, isMe ? b.me : b.other]}>
-      {!isMe && (
-        <View style={{ width: 28, alignSelf: 'flex-end', marginBottom: msg.reaction ? 14 : 0 }}>
-          {showAvatar && <Avatar uri={other?.avatarUrl} name={other?.displayName} size={26} />}
-        </View>
-      )}
       <View style={b.wrap}>
         <RNAnimated.View style={{ transform: [{ scale }] }}>
           <TouchableOpacity onPress={tap} onLongPress={() => onLong(msg)} activeOpacity={0.85} delayLongPress={360}>
@@ -515,28 +511,32 @@ function Bubble({ msg, isMe, showAvatar, other, onLong, onDouble }: {
 }
 
 const b = StyleSheet.create({
-  row:         { flexDirection: 'row', alignItems: 'flex-end', gap: 6, marginBottom: 2, paddingHorizontal: 14 },
-  me:          { justifyContent: 'flex-end' },
-  other:       { justifyContent: 'flex-start' },
-  wrap:        { maxWidth: '76%', gap: 3 },
-  bubble:      { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 20 },
-  bubbleMe:    { borderBottomRightRadius: 6 },
-  bubbleOther: { backgroundColor: C.surfaceHi, borderWidth: 1, borderColor: C.border, borderBottomLeftRadius: 6 },
-  imgBubble:   { borderRadius: 18, overflow: 'hidden' },
-  img:         { width: '100%', height: '100%' },
-  imgFooter:   { position: 'absolute', bottom: 0, left: 0, right: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 3, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: 'rgba(0,0,0,0.35)' },
-  imgTime:     { fontSize: 10, color: 'rgba(255,255,255,0.75)' },
-  deleted:     { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 18, borderWidth: 1, borderColor: C.border, borderStyle: 'dashed' },
-  deletedTxt:  { fontSize: 13, fontStyle: 'italic', color: C.textTer },
-  txtMe:       { color: C.text, fontSize: 15, lineHeight: 21 },
-  txtOther:    { color: C.text, fontSize: 15, lineHeight: 21 },
-  badge:       { position: 'absolute', bottom: 16, width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg, borderWidth: 1, borderColor: C.borderHi },
-  badgeMe:     { right: -6 },
-  badgeOther:  { left: -6 },
-  meta:        { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 1 },
-  metaMe:      { justifyContent: 'flex-end' },
-  metaOther:   { justifyContent: 'flex-start' },
-  time:        { fontSize: 10, color: C.textTer },
+  row:           { flexDirection: 'row', alignItems: 'flex-end', marginBottom: 2, paddingHorizontal: 14 },
+  me:            { justifyContent: 'flex-end' },
+  other:         { justifyContent: 'flex-start' },
+  wrap:          { maxWidth: '78%', gap: 3 },
+  bubble:        { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 20 },
+  bubbleMe:      { borderBottomRightRadius: 6 },
+  bubbleOther:   { backgroundColor: C.surfaceHi, borderWidth: 1, borderColor: C.border, borderBottomLeftRadius: 6 },
+  imgBubble:     { borderRadius: 18, overflow: 'hidden' },
+  imgBubbleMe:   { borderBottomRightRadius: 6 },
+  imgBubbleOther:{ borderBottomLeftRadius: 6 },
+  img:           { width: '100%' },
+  imgCaption:    { paddingHorizontal: 12, paddingTop: 8, paddingBottom: 4, backgroundColor: C.bubble1 },
+  imgCaptionTxt: { fontSize: 14, color: C.text, lineHeight: 19 },
+  imgFooter:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 3, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: 'rgba(0,0,0,0.35)', position: 'absolute', bottom: 0, right: 0 },
+  imgTime:       { fontSize: 10, color: 'rgba(255,255,255,0.75)' },
+  deleted:       { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 18, borderWidth: 1, borderColor: C.border, borderStyle: 'dashed' },
+  deletedTxt:    { fontSize: 13, fontStyle: 'italic', color: C.textTer },
+  txtMe:         { color: C.text, fontSize: 15, lineHeight: 21 },
+  txtOther:      { color: C.text, fontSize: 15, lineHeight: 21 },
+  badge:         { position: 'absolute', bottom: 16, width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg, borderWidth: 1, borderColor: C.borderHi },
+  badgeMe:       { right: -6 },
+  badgeOther:    { left: -6 },
+  meta:          { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 1 },
+  metaMe:        { justifyContent: 'flex-end' },
+  metaOther:     { justifyContent: 'flex-start' },
+  time:          { fontSize: 10, color: C.textTer },
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -610,7 +610,6 @@ function ReactionsSheet({ visible, msg, isMine, onPick, onDelete, onCopy, onClos
     </View>
   );
 }
-
 const rs = StyleSheet.create({
   backdrop:   { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.6)' },
   sheet:      { position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: C.bg, borderTopLeftRadius: 28, borderTopRightRadius: 28, borderTopWidth: 1, borderTopColor: C.borderHi, paddingTop: 8 },
@@ -639,7 +638,6 @@ function TypingBubble() {
   }, []);
   return (
     <View style={[b.row, b.other]}>
-      <View style={{ width: 28 }} />
       <View style={[b.bubble, b.bubbleOther, { flexDirection: 'row', gap: 5, paddingVertical: 14 }]}>
         {dots.map((v, i) => (
           <RNAnimated.View key={i} style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: C.primaryLt, opacity: v }} />
@@ -657,25 +655,29 @@ export default function ChatScreen({ route, navigation }: any) {
   const { user }  = useAuthStore();
   const insets    = useSafeAreaInsets();
 
-  const [messages,      setMessages]      = useState<Message[]>([]);
-  const [input,         setInput]         = useState('');
-  const [otherTyping,   setOtherTyping]   = useState(false);
-  const [loading,       setLoading]       = useState(true);
-  const [otherPresence, setOtherPresence] = useState<PresenceStatus | null>(null);
-  const [selectedMsg,   setSelectedMsg]   = useState<Message | null>(null);
-  const [sheetOpen,     setSheetOpen]     = useState(false);
-  const [menuOpen,      setMenuOpen]      = useState(false);
-  const [menuAnchorY,   setMenuAnchorY]   = useState(0);
-  const [reportOpen,    setReportOpen]    = useState(false);
-  const [isBlocked,     setIsBlocked]     = useState(false);
-  const [toastMsg,      setToastMsg]      = useState<{ text: string; type: 'info'|'success'|'error' } | null>(null);
+  const [messages,       setMessages]       = useState<Message[]>([]);
+  const [input,          setInput]          = useState('');
+  const [selectedImage,  setSelectedImage]  = useState<string | null>(null); // preview
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [otherTyping,    setOtherTyping]    = useState(false);
+  const [loading,        setLoading]        = useState(true);
+  const [otherPresence,  setOtherPresence]  = useState<PresenceStatus | null>(null);
+  const [selectedMsg,    setSelectedMsg]    = useState<Message | null>(null);
+  const [sheetOpen,      setSheetOpen]      = useState(false);
+  const [menuOpen,       setMenuOpen]       = useState(false);
+  const [menuAnchorY,    setMenuAnchorY]    = useState(0);
+  const [reportOpen,     setReportOpen]     = useState(false);
+  const [isBlocked,      setIsBlocked]      = useState(false);
+  const [toastMsg,       setToastMsg]       = useState<{ text: string; type: 'info'|'success'|'error' } | null>(null);
 
   const flatRef     = useRef<FlatList>(null);
   const typingTimer = useRef<any>(null);
   const isTypingRef = useRef(false);
   const menuBtnRef  = useRef<View>(null);
   const toastTimer  = useRef<any>(null);
-  const hasText     = input.trim().length > 0;
+
+  // Tem texto OU imagem selecionada → botão enviar ativo
+  const hasContent = input.trim().length > 0 || selectedImage !== null;
 
   const showToast = useCallback((text: string, type: 'info'|'success'|'error' = 'info', ms = 2800) => {
     clearTimeout(toastTimer.current);
@@ -683,12 +685,12 @@ export default function ChatScreen({ route, navigation }: any) {
     toastTimer.current = setTimeout(() => setToastMsg(null), ms);
   }, []);
 
-  // ── Checar bloqueio ao entrar ───────────────────────────────────────────
+  // ── Checar bloqueio ────────────────────────────────────────────────────
   useEffect(() => {
     if (!other?.id) return;
     api.get('/blocks')
       .then(({ data }) => {
-        const blocked = Array.isArray(data) && data.some((b: any) => b.blockedId === other.id);
+        const blocked = Array.isArray(data) && data.some((bl: any) => bl.blockedId === other.id);
         setIsBlocked(blocked);
       })
       .catch(() => {});
@@ -700,9 +702,9 @@ export default function ChatScreen({ route, navigation }: any) {
       const { data } = await api.get(`/messages/conversations/${conversation.id}`);
       const msgs = (data.messages || data || []).map((m: any) => ({
         ...m,
-        type:        m.type        ?? 'text',
         isRead:      m.isRead      ?? false,
         deliveredAt: m.deliveredAt ?? null,
+        imageUrl:    m.imageUrl    ?? null,
       }));
       setMessages(msgs);
       setTimeout(() => flatRef.current?.scrollToEnd({ animated: false }), 100);
@@ -710,7 +712,7 @@ export default function ChatScreen({ route, navigation }: any) {
     finally { setLoading(false); }
   }, [conversation.id]);
 
-  // ── Presença inicial ───────────────────────────────────────────────────
+  // ── Presença ───────────────────────────────────────────────────────────
   useEffect(() => {
     if (!other?.id) return;
     api.get(`/users/${other.username || other.id}/presence`)
@@ -728,22 +730,22 @@ export default function ChatScreen({ route, navigation }: any) {
 
     const unsubMsg = socketService.onNewMessage((msg: any) => {
       setMessages(prev => [...prev, {
-        ...msg, type: msg.type ?? 'text',
-        isRead: false, deliveredAt: msg.deliveredAt ?? null,
+        ...msg,
+        isRead:      false,
+        deliveredAt: msg.deliveredAt ?? null,
+        imageUrl:    msg.imageUrl    ?? null,
       }]);
       setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 80);
     });
 
     socket.on('user_typing', ({ isTyping: t }: any) => setOtherTyping(t));
 
-    // ✓ → ✓✓ slate: mensagem foi entregue ao dispositivo do destinatário
-    socket.on('message_delivered', ({ messageId }: { messageId: string; conversationId: string }) => {
+    socket.on('message_delivered', ({ messageId }: { messageId: string }) => {
       setMessages(prev => prev.map(m =>
         m.id === messageId ? { ...m, deliveredAt: new Date().toISOString() } : m
       ));
     });
 
-    // ✓✓ slate → ✓✓ cyan: destinatário abriu a conversa e leu
     socket.on('messages_read', ({ conversationId: cId }: { conversationId: string }) => {
       if (cId !== conversation.id) return;
       setMessages(prev => prev.map(m =>
@@ -753,7 +755,6 @@ export default function ChatScreen({ route, navigation }: any) {
       ));
     });
 
-    // Backend rejeitou — remetente está bloqueado pelo destinatário
     socket.on('message_blocked', () => {
       showToast('Não foi possível enviar a mensagem', 'error');
     });
@@ -774,36 +775,7 @@ export default function ChatScreen({ route, navigation }: any) {
     };
   }, [conversation.id, loadMessages, other?.id, user?.id, showToast]);
 
-  // ── Enviar texto ───────────────────────────────────────────────────────
-  const handleSend = useCallback(async () => {
-    const content = input.trim();
-    if (!content || isBlocked) return;
-    setInput('');
-    const temp: Message = {
-      id: `temp-${Date.now()}`, senderId: user?.id || '',
-      type: 'text', content, createdAt: new Date().toISOString(),
-      isRead: false, deliveredAt: null,
-    };
-    setMessages(prev => [...prev, temp]);
-    setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 60);
-
-    const socket = socketService.getSocket();
-    if (socket?.connected) {
-      socket.emit('send_message', { conversationId: conversation.id, content });
-    } else {
-      try {
-        const { data } = await api.post(`/messages/conversations/${conversation.id}`, { content });
-        setMessages(prev => prev.map(m => m.id === temp.id
-          ? { ...data, type: 'text', isRead: false, deliveredAt: data.deliveredAt ?? null }
-          : m
-        ));
-      } catch {
-        setMessages(prev => prev.filter(m => m.id !== temp.id));
-      }
-    }
-  }, [input, isBlocked, conversation.id, user?.id]);
-
-  // ── Enviar imagem ──────────────────────────────────────────────────────
+  // ── Selecionar imagem — salva no estado, mostra preview ───────────────
   const handlePickImage = useCallback(async () => {
     if (isBlocked) return;
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -813,15 +785,71 @@ export default function ChatScreen({ route, navigation }: any) {
     });
     if (result.canceled || !result.assets?.[0]?.uri) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    setSelectedImage(result.assets[0].uri);
+  }, [isBlocked, showToast]);
+
+  // ── Enviar — texto e/ou imagem ─────────────────────────────────────────
+  const handleSend = useCallback(async () => {
+    const content = input.trim();
+    if ((!content && !selectedImage) || isBlocked) return;
+
+    setInput('');
+    const imageToSend = selectedImage;
+    setSelectedImage(null);
+
+    // Mensagem otimista
+    const tempId = `temp-${Date.now()}`;
     const temp: Message = {
-      id: `temp-img-${Date.now()}`, senderId: user?.id || '',
-      type: 'image', content: result.assets[0].uri,
-      createdAt: new Date().toISOString(), isRead: false, deliveredAt: null,
+      id: tempId, senderId: user?.id || '',
+      content, imageUrl: imageToSend,
+      createdAt: new Date().toISOString(),
+      isRead: false, deliveredAt: null,
     };
     setMessages(prev => [...prev, temp]);
-    setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 80);
-    // TODO: upload + socket.emit('send_message', { type: 'image', content: url })
-  }, [isBlocked, user?.id, showToast]);
+    setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 60);
+
+    let finalImageUrl: string | null = null;
+
+    // Upload da imagem se houver
+    if (imageToSend) {
+      setUploadingImage(true);
+      try {
+        finalImageUrl = await uploadImage(imageToSend, 'messages');
+        // Atualiza a mensagem temp com a URL real
+        setMessages(prev => prev.map(m =>
+          m.id === tempId ? { ...m, imageUrl: finalImageUrl } : m
+        ));
+      } catch {
+        showToast('Erro ao enviar imagem', 'error');
+        setMessages(prev => prev.filter(m => m.id !== tempId));
+        setUploadingImage(false);
+        return;
+      }
+      setUploadingImage(false);
+    }
+
+    const socket = socketService.getSocket();
+    if (socket?.connected) {
+      socket.emit('send_message', {
+        conversationId: conversation.id,
+        content,
+        imageUrl: finalImageUrl,
+      });
+    } else {
+      try {
+        const { data } = await api.post(`/messages/conversations/${conversation.id}`, {
+          content,
+          imageUrl: finalImageUrl,
+        });
+        setMessages(prev => prev.map(m => m.id === tempId
+          ? { ...data, isRead: false, deliveredAt: data.deliveredAt ?? null, imageUrl: data.imageUrl ?? finalImageUrl }
+          : m
+        ));
+      } catch {
+        setMessages(prev => prev.filter(m => m.id !== tempId));
+      }
+    }
+  }, [input, selectedImage, isBlocked, conversation.id, user?.id, showToast]);
 
   // ── Typing ─────────────────────────────────────────────────────────────
   const handleTyping = (text: string) => {
@@ -847,7 +875,7 @@ export default function ChatScreen({ route, navigation }: any) {
     });
   };
 
-  // ── Bloquear / Desbloquear ─────────────────────────────────────────────
+  // ── Block ──────────────────────────────────────────────────────────────
   const handleBlock = useCallback(() => {
     if (isBlocked) {
       Alert.alert('Desbloquear', `Desbloquear ${other?.displayName || other?.username}?`, [
@@ -878,7 +906,6 @@ export default function ChatScreen({ route, navigation }: any) {
   }, [isBlocked, other, showToast]);
 
   // ── Report ─────────────────────────────────────────────────────────────
-  const handleReport = useCallback(() => setReportOpen(true), []);
   const submitReport = useCallback(async (reason: ReportReason, description: string) => {
     try {
       await api.post(`/reports/user/${other.id}`, { reason, description: description || undefined });
@@ -887,7 +914,7 @@ export default function ChatScreen({ route, navigation }: any) {
     } catch { showToast('Erro ao enviar denúncia', 'error'); }
   }, [other?.id, showToast]);
 
-  // ── Limpar conversa (persistente) ──────────────────────────────────────
+  // ── Clear ──────────────────────────────────────────────────────────────
   const handleClearChat = useCallback(() => {
     Alert.alert('Limpar conversa', 'As mensagens serão removidas permanentemente para você.', [
       { text: 'Cancelar', style: 'cancel' },
@@ -901,7 +928,7 @@ export default function ChatScreen({ route, navigation }: any) {
     ]);
   }, [conversation.id, showToast]);
 
-  // ── Reações / Delete ───────────────────────────────────────────────────
+  // ── Reações ────────────────────────────────────────────────────────────
   const handleDouble = useCallback((msg: Message) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     const r = msg.reaction === '❤️' ? null : '❤️';
@@ -926,23 +953,29 @@ export default function ChatScreen({ route, navigation }: any) {
     closeSheet();
   };
 
-  const deleteMessage = (_fe: boolean) => {
+  const deleteMessage = useCallback(async (forEveryone: boolean) => {
     if (!selectedMsg) return;
-    setMessages(prev => prev.map(m =>
-      m.id === selectedMsg.id ? { ...m, isDeleted: true, content: '' } : m
-    ));
+    const msgId = selectedMsg.id;
     closeSheet();
-  };
+    setMessages(prev => prev.map(m =>
+      m.id === msgId ? { ...m, isDeleted: true, content: '' } : m
+    ));
+    if (msgId.startsWith('temp-')) return;
+    try {
+      await api.delete(`/messages/${msgId}`);
+    } catch {
+      setMessages(prev => prev.map(m =>
+        m.id === msgId ? { ...m, isDeleted: false } : m
+      ));
+      showToast('Erro ao apagar mensagem', 'error');
+    }
+  }, [selectedMsg, closeSheet, showToast]);
 
   // ── Render ─────────────────────────────────────────────────────────────
   const isMe = (msg: Message) => msg.senderId === user?.id;
 
   const renderItem = useCallback(({ item, index }: { item: Message; index: number }) => {
-    const mine  = isMe(item);
-    const showA = !mine && (
-      index === messages.length - 1 ||
-      messages[index + 1]?.senderId !== item.senderId
-    );
+    const mine = isMe(item);
     return (
       <View>
         {newDay(messages, index) && (
@@ -952,11 +985,10 @@ export default function ChatScreen({ route, navigation }: any) {
             <View style={s.dayLine} />
           </View>
         )}
-        <Bubble msg={item} isMe={mine} showAvatar={showA} other={other}
-          onLong={handleLong} onDouble={handleDouble} />
+        <Bubble msg={item} isMe={mine} onLong={handleLong} onDouble={handleDouble} />
       </View>
     );
-  }, [messages, other, handleLong, handleDouble, user?.id]);
+  }, [messages, handleLong, handleDouble, user?.id]);
 
   const headerSub = useMemo(() => {
     if (otherTyping) return <Text style={[s.hSub, { color: C.primaryLt }]}>digitando...</Text>;
@@ -969,17 +1001,17 @@ export default function ChatScreen({ route, navigation }: any) {
     return <Text style={s.hSub}>@{other?.username}</Text>;
   }, [otherTyping, otherPresence, other?.username]);
 
-  // ── Layout ─────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────
   return (
     <View style={s.root}>
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
 
-      {/* Header */}
+      {/* Header — botão Voltar com GlowBtn */}
       <View style={[s.header, { paddingTop: insets.top + 8 }]}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={s.backBtn}
-          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }} activeOpacity={0.7}>
-          <Ionicons name="chevron-back" size={26} color={C.text} />
-        </TouchableOpacity>
+        <GlowBtn onPress={() => navigation.goBack()} size={36} radius={18}>
+          <Ionicons name="chevron-back" size={20} color={C.text} />
+        </GlowBtn>
+
         <TouchableOpacity style={s.hCenter} activeOpacity={0.8}
           onPress={() => other?.username && navigation.navigate('UserProfile', { username: other.username })}>
           <Avatar uri={other?.avatarUrl} name={other?.displayName || other?.username}
@@ -989,6 +1021,8 @@ export default function ChatScreen({ route, navigation }: any) {
             {headerSub}
           </View>
         </TouchableOpacity>
+
+        {/* Botão ··· com GlowBtn */}
         <View ref={menuBtnRef} collapsable={false}>
           <GlowBtn onPress={openMenu} size={36} radius={12}>
             <Ionicons name="ellipsis-horizontal" size={18} color={C.textSec} />
@@ -998,7 +1032,6 @@ export default function ChatScreen({ route, navigation }: any) {
 
       <View style={s.divider} />
 
-      {/* KAV */}
       <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
         {loading ? (
           <View style={s.loading}><Text style={{ color: C.textTer, fontSize: 13 }}>Carregando...</Text></View>
@@ -1020,38 +1053,59 @@ export default function ChatScreen({ route, navigation }: any) {
           />
         )}
 
-        {/* Input — desabilitado quando bloqueado */}
+        {/* ─── Input bar ─── */}
         <View style={[s.inputBar, { paddingBottom: insets.bottom + 8 }]}>
           {isBlocked ? (
-            // Label de bloqueio — minimalista, centralizada
             <View style={s.blockedBar}>
               <Ionicons name="ban-outline" size={13} color={C.textTer} />
               <Text style={s.blockedTxt}>Você bloqueou este usuário</Text>
             </View>
           ) : (
-            <View style={s.inputRow}>
-              <GlowBtn onPress={handlePickImage} size={38} radius={19}>
-                <Ionicons name="add" size={20} color={C.textSec} />
-              </GlowBtn>
-              <View style={s.inputWrap}>
-                <TextInput
-                  style={s.input}
-                  placeholder="Message..."
-                  placeholderTextColor={C.textTer}
-                  value={input}
-                  onChangeText={handleTyping}
-                  multiline maxLength={1000}
-                  returnKeyType="default"
-                  underlineColorAndroid="transparent"
-                />
-                <SendButton active={hasText} onPress={handleSend} />
+            <>
+              {/* Preview da imagem selecionada */}
+              {selectedImage && (
+                <View style={s.previewWrap}>
+                  <Image source={{ uri: selectedImage }} style={s.previewImg} resizeMode="cover" />
+                  <TouchableOpacity style={s.previewRemove} onPress={() => setSelectedImage(null)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                    <BlurView intensity={60} tint="dark" style={StyleSheet.absoluteFill} />
+                    <Ionicons name="close" size={14} color={C.text} />
+                  </TouchableOpacity>
+                  {uploadingImage && (
+                    <View style={s.previewUploading}>
+                      <BlurView intensity={60} tint="dark" style={StyleSheet.absoluteFill} />
+                      <Text style={s.previewUploadingTxt}>Enviando...</Text>
+                    </View>
+                  )}
+                </View>
+              )}
+
+              {/* Row do input — + alinhado ao centro do campo */}
+              <View style={s.inputRow}>
+                {/* Botão + com GlowBtn, alinhado ao centro via alignSelf */}
+                <GlowBtn onPress={handlePickImage} size={38} radius={19}>
+                  <Ionicons name="add" size={20} color={C.textSec} />
+                </GlowBtn>
+
+                <View style={s.inputWrap}>
+                  <TextInput
+                    style={s.input}
+                    placeholder={selectedImage ? 'Adicionar legenda...' : 'Message...'}
+                    placeholderTextColor={C.textTer}
+                    value={input}
+                    onChangeText={handleTyping}
+                    multiline maxLength={1000}
+                    returnKeyType="default"
+                    underlineColorAndroid="transparent"
+                  />
+                  <SendButton active={hasContent} onPress={handleSend} />
+                </View>
               </View>
-            </View>
+            </>
           )}
         </View>
       </KeyboardAvoidingView>
 
-      {/* Toast */}
       {toastMsg && (
         <View style={[s.toastWrap, { top: insets.top + 72 }]} pointerEvents="none">
           <Toast message={toastMsg.text} type={toastMsg.type} />
@@ -1064,7 +1118,7 @@ export default function ChatScreen({ route, navigation }: any) {
         onCopy={() => closeSheet()} onClose={closeSheet} />
 
       <OptionsMenu visible={menuOpen} anchorY={menuAnchorY} isBlocked={isBlocked}
-        onReport={handleReport} onBlock={handleBlock}
+        onReport={() => setReportOpen(true)} onBlock={handleBlock}
         onClear={handleClearChat} onClose={() => setMenuOpen(false)} />
 
       <ReportModal visible={reportOpen}
@@ -1074,29 +1128,34 @@ export default function ChatScreen({ route, navigation }: any) {
   );
 }
 
-// ─── Styles ──────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
-  root:        { flex: 1, backgroundColor: C.bg },
-  header:      { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingBottom: 12 },
-  backBtn:     { padding: 2, marginLeft: -4 },
-  hCenter:     { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 },
-  hName:       { fontSize: 17, fontWeight: '700', color: C.text, letterSpacing: -0.2 },
-  hSub:        { fontSize: 12, color: C.textSec, marginTop: 2 },
-  presRow:     { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 2 },
-  presDot:     { width: 7, height: 7, borderRadius: 3.5 },
-  divider:     { height: StyleSheet.hairlineWidth, backgroundColor: C.border },
-  loading:     { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  dayRow:      { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 28, paddingVertical: 14 },
-  dayLine:     { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: C.border },
-  dayTxt:      { fontSize: 11, fontWeight: '600', color: C.textTer, letterSpacing: 0.3 },
-  empty:       { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 40, gap: 12 },
-  emptyTitle:  { fontSize: 32, fontWeight: '800', color: C.text, letterSpacing: -0.8 },
-  emptySub:    { fontSize: 15, color: C.textSec, textAlign: 'center', lineHeight: 22 },
-  inputBar:    { paddingHorizontal: 14, paddingTop: 8, backgroundColor: C.bg },
-  inputRow:    { flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
-  inputWrap:   { flex: 1, flexDirection: 'row', alignItems: 'flex-end', gap: 8, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 26, paddingLeft: 18, paddingRight: 6, paddingVertical: 6, minHeight: 50, maxHeight: 140 },
-  input:       { flex: 1, fontSize: 15, lineHeight: 20, color: C.text, paddingTop: 9, paddingBottom: 9, maxHeight: 120 },
-  blockedBar:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 14 },
-  blockedTxt:  { fontSize: 12, color: C.textTer },
-  toastWrap:   { position: 'absolute', left: 0, right: 0, alignItems: 'center' },
+  root:               { flex: 1, backgroundColor: C.bg },
+  header:             { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingBottom: 12 },
+  hCenter:            { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  hName:              { fontSize: 17, fontWeight: '700', color: C.text, letterSpacing: -0.2 },
+  hSub:               { fontSize: 12, color: C.textSec, marginTop: 2 },
+  presRow:            { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 2 },
+  presDot:            { width: 7, height: 7, borderRadius: 3.5 },
+  divider:            { height: StyleSheet.hairlineWidth, backgroundColor: C.border },
+  loading:            { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  dayRow:             { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 28, paddingVertical: 14 },
+  dayLine:            { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: C.border },
+  dayTxt:             { fontSize: 11, fontWeight: '600', color: C.textTer, letterSpacing: 0.3 },
+  empty:              { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 40, gap: 12 },
+  emptyTitle:         { fontSize: 32, fontWeight: '800', color: C.text, letterSpacing: -0.8 },
+  emptySub:           { fontSize: 15, color: C.textSec, textAlign: 'center', lineHeight: 22 },
+  inputBar:           { paddingHorizontal: 14, paddingTop: 8, backgroundColor: C.bg },
+  // Preview da imagem selecionada
+  previewWrap:        { marginBottom: 8, borderRadius: 14, overflow: 'hidden', alignSelf: 'flex-start', maxWidth: '60%' },
+  previewImg:         { width: 120, height: 120 },
+  previewRemove:      { position: 'absolute', top: 6, right: 6, width: 24, height: 24, borderRadius: 12, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
+  previewUploading:   { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  previewUploadingTxt:{ fontSize: 12, color: C.text, fontWeight: '600' },
+  // Input row — + e campo centralizados
+  inputRow:           { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  inputWrap:          { flex: 1, flexDirection: 'row', alignItems: 'flex-end', gap: 8, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 26, paddingLeft: 18, paddingRight: 6, paddingVertical: 6, minHeight: 50, maxHeight: 140 },
+  input:              { flex: 1, fontSize: 15, lineHeight: 20, color: C.text, paddingTop: 9, paddingBottom: 9, maxHeight: 120 },
+  blockedBar:         { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 14 },
+  blockedTxt:         { fontSize: 12, color: C.textTer },
+  toastWrap:          { position: 'absolute', left: 0, right: 0, alignItems: 'center' },
 });

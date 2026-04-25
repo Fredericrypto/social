@@ -1,106 +1,66 @@
-/**
- * supabase.service.ts
- * Upload direto mobile → Supabase Storage
- * Compressão via expo-image-manipulator + base64 nativo
- */
-import { createClient } from '@supabase/supabase-js';
-import * as ImageManipulator from 'expo-image-manipulator';
-import * as Crypto from 'expo-crypto';
+import { createClient } from "@supabase/supabase-js";
+import * as ImageManipulator from "expo-image-manipulator";
 
-const SUPABASE_URL      = process.env.EXPO_PUBLIC_SUPABASE_URL!;
+const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL!;
 const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
-const BUCKET            = 'minha-rede';
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { persistSession: false },
 });
 
-export type UploadFolder = 'avatars' | 'posts' | 'covers' | 'stories';
-
 /**
- * Comprime, redimensiona e retorna base64 da imagem.
- * O ImageManipulator com base64:true é o método mais confiável no React Native.
+ * Todos os buckets de upload do Venus.
+ * Para adicionar um novo contexto, basta incluir aqui.
  */
-async function compressToBase64(localUri: string, flipHorizontal = false): Promise<string> {
-  const actions: ImageManipulator.Action[] = [
-    { resize: { width: 1080 } },
-  ];
-
-  // Corrige espelhamento da câmera frontal no Android
-  if (flipHorizontal) {
-    actions.push({ flip: ImageManipulator.FlipType.Horizontal });
-  }
-
-  const result = await ImageManipulator.manipulateAsync(
-    localUri,
-    actions,
-    {
-      compress: 0.82,
-      format:   ImageManipulator.SaveFormat.JPEG,
-      base64:   true,  // retorna base64 diretamente — sem depender de URI temporária
-    },
-  );
-
-  if (!result.base64 || result.base64.length < 100) {
-    throw new Error('Compressão falhou — base64 vazio');
-  }
-
-  return result.base64;
-}
+export type UploadFolder =
+  | 'avatars'       // fotos de perfil
+  | 'posts'         // mídias de posts do feed
+  | 'covers'        // fotos de capa do perfil
+  | 'stories'       // stories/flashes
+  | 'messages'      // fotos trocadas no chat
+  | 'vault'         // conteúdo privado / close friends
+  | 'highlights'    // capas de destaques de perfil
+  | 'media_comments'// fotos em comentários
+  | 'verifications' // documentos para verificação de conta
+  | 'branding';     // assets de UI dinâmicos
 
 /**
- * Converte base64 string para Uint8Array
- */
-function base64ToBytes(base64: string): Uint8Array {
-  const binaryStr = atob(base64);
-  const bytes     = new Uint8Array(binaryStr.length);
-  for (let i = 0; i < binaryStr.length; i++) {
-    bytes[i] = binaryStr.charCodeAt(i);
-  }
-  return bytes;
-}
-
-/**
- * Faz upload de imagem local diretamente para o Supabase Storage.
- * @param localUri       URI local da imagem
- * @param folder         Pasta no bucket
- * @param flipHorizontal true quando câmera frontal no Android (corrige espelhamento)
+ * Comprime e faz upload de uma imagem para o Supabase Storage.
+ * Retorna a URL pública do arquivo.
+ *
+ * @param localUri  URI local da imagem (expo-image-picker)
+ * @param folder    Bucket de destino (UploadFolder)
+ * @param quality   Qualidade JPEG 0–1 (padrão 0.8)
  */
 export async function uploadImage(
-  localUri:       string,
-  folder:         UploadFolder,
-  flipHorizontal: boolean = false,
+  localUri: string,
+  folder: UploadFolder,
+  quality = 0.8,
 ): Promise<string> {
-  // 1. Comprime e obtém base64
-  const base64 = await compressToBase64(localUri, flipHorizontal);
+  // Comprimir antes de enviar
+  const compressed = await ImageManipulator.manipulateAsync(
+    localUri,
+    [{ resize: { width: 1200 } }],
+    { compress: quality, format: ImageManipulator.SaveFormat.JPEG },
+  );
 
-  // 2. Converte para bytes
-  const bytes = base64ToBytes(base64);
+  const response = await fetch(compressed.uri);
+  const blob     = await response.blob();
+  const ext      = "jpg";
+  const fileName = `${folder}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
 
-  // 3. Gera chave única
-  const randomId = Crypto.randomUUID();
-  const key      = `${folder}/${randomId}.jpg`;
-
-  // 4. Upload via supabase-js
-  const { data, error } = await supabase.storage
-    .from(BUCKET)
-    .upload(key, bytes, {
-      contentType: 'image/jpeg',
-      upsert:      false,
+  const { error } = await supabase.storage
+    .from("minha-rede")
+    .upload(fileName, blob, {
+      contentType: "image/jpeg",
+      upsert: false,
     });
 
-  if (error) {
-    console.error('Supabase upload error:', error);
-    throw new Error(`Upload falhou: ${error.message}`);
-  }
+  if (error) throw new Error(`Upload falhou: ${error.message}`);
 
-  // 5. URL pública permanente
-  const { data: urlData } = supabase.storage
-    .from(BUCKET)
-    .getPublicUrl(data.path);
+  const { data } = supabase.storage
+    .from("minha-rede")
+    .getPublicUrl(fileName);
 
-  if (!urlData?.publicUrl) throw new Error('URL pública não retornada');
-
-  console.log('✅ Upload OK:', urlData.publicUrl.substring(0, 80));
-  return urlData.publicUrl;
+  return data.publicUrl;
 }
