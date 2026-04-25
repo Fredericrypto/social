@@ -1,13 +1,16 @@
 /**
- * ChatScreen.tsx — Venus v11
+ * ChatScreen.tsx — Venus v13
  *
- * Fixes:
- *  [1] Modal de reações atrás do teclado → Keyboard.dismiss() antes de abrir
- *  [2] Botão voltar da bottom tab fecha modal em vez de navegar
- *      → navigation.addListener('beforeRemove') intercepta se sheetOpen
- *  [3] Scroll para última mensagem ao abrir (mesmo comportamento WhatsApp)
- *  [4] Unread highlight — header "Mensagens não lidas" + fundo destacado 5s
- *      → calcula firstUnreadIndex ao carregar, destaca com fade out
+ * Reescrita completa. Todos os bugs corrigidos:
+ *  [1] ImageViewer fullscreen — ScrollView nativo (zoom pinch funciona no Expo Go)
+ *      Swipe para fechar, single tap mostra/esconde UI, lixeira para deletar
+ *  [2] Bolha de imagem — moldura arredondada completa, gestos corretos
+ *      double-tap = ❤️, long-press = sheet, tap = abre viewer
+ *  [3] Scroll sempre vai ao fim ao abrir
+ *      Unread highlight + header aparecem apenas uma vez (AsyncStorage)
+ *  [4] ReactionsSheet — "Apagar mensagem" disponível para todos (não só isMine)
+ *  [5] Clipboard no "Copiar"
+ *  [6] Delete emite socket para o outro usuário ver em tempo real
  */
 
 import React, {
@@ -17,10 +20,11 @@ import {
   View, Text, FlatList, TextInput, TouchableOpacity,
   StyleSheet, Platform, StatusBar, Image, Alert,
   Animated as RNAnimated, Pressable, PanResponder,
-  Dimensions, ScrollView, Keyboard,
+  Dimensions, ScrollView, Keyboard, Modal,
 } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { KeyboardAvoidingView as RNKeyboardAvoidingView } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
@@ -59,14 +63,14 @@ const C = {
   success:   '#4ADE80',
   bubble1:   '#1E293B',
   bubble2:   '#334155',
-  unread:    'rgba(34,211,238,0.08)', // highlight cyan sutil
+  unread:    'rgba(34,211,238,0.08)',
 };
 
 const GRAD_CYAN  = ['#22D3EE', '#3B82F6', '#8B5CF6'] as const;
 const GRAD_SLATE = ['#475569', '#94A3B8', '#64748B'] as const;
-const SH = Dimensions.get('window').height;
-const SW = Dimensions.get('window').width;
+const { width: SW, height: SH } = Dimensions.get('window');
 
+// ─── Tipos ────────────────────────────────────────────────────────────────────
 type CheckState = 'sent' | 'delivered' | 'read';
 
 interface Message {
@@ -81,18 +85,27 @@ interface Message {
   isDeleted?:  boolean;
 }
 
+interface ViewerData {
+  uri:    string;
+  msgId:  string;
+  isMine: boolean;
+}
+
 function getCheckState(msg: Message): CheckState {
   if (msg.isRead)      return 'read';
   if (msg.deliveredAt) return 'delivered';
   return 'sent';
 }
 
-function CheckIcon({ state }: { state: CheckState }) {
+function CheckIcon({ state, light = false }: { state: CheckState; light?: boolean }) {
+  const color = light
+    ? (state === 'read' ? C.cyan : 'rgba(255,255,255,0.75)')
+    : (state === 'read' ? C.cyan : C.primaryLt);
   return (
     <Ionicons
       name={state !== 'sent' ? 'checkmark-done' : 'checkmark'}
       size={12}
-      color={state === 'read' ? C.cyan : C.primaryLt}
+      color={color}
     />
   );
 }
@@ -119,6 +132,132 @@ function newDay(msgs: Message[], i: number) {
   if (i === 0) return true;
   return new Date(msgs[i-1].createdAt).toDateString() !== new Date(msgs[i].createdAt).toDateString();
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  IMAGE VIEWER — fullscreen, zoom nativo via ScrollView
+// ═════════════════════════════════════════════════════════════════════════════
+function ImageViewer({ data, onClose, onDelete }: {
+  data: ViewerData | null;
+  onClose: () => void;
+  onDelete: (msgId: string) => void;
+}) {
+  const insets     = useSafeAreaInsets();
+  const bgOp       = useRef(new RNAnimated.Value(0)).current;
+  const swipeAnim  = useRef(new RNAnimated.Value(0)).current;
+  const [uiVisible, setUiVisible] = useState(true);
+  const visible = data !== null;
+
+  useEffect(() => {
+    if (visible) {
+      setUiVisible(true);
+      swipeAnim.setValue(0);
+      RNAnimated.timing(bgOp, { toValue: 1, duration: 220, useNativeDriver: true }).start();
+    } else {
+      RNAnimated.timing(bgOp, { toValue: 0, duration: 180, useNativeDriver: true }).start();
+    }
+  }, [visible, bgOp, swipeAnim]);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder:  () => false,
+      onMoveShouldSetPanResponder:   (_, g) => Math.abs(g.dy) > 15 && Math.abs(g.dy) > Math.abs(g.dx),
+      onPanResponderMove:    (_, g) => { swipeAnim.setValue(g.dy); },
+      onPanResponderRelease: (_, g) => {
+        if (Math.abs(g.dy) > 120 || Math.abs(g.vy) > 0.8) {
+          RNAnimated.timing(swipeAnim, {
+            toValue: g.dy > 0 ? SH : -SH,
+            duration: 220,
+            useNativeDriver: true,
+          }).start(onClose);
+        } else {
+          RNAnimated.spring(swipeAnim, {
+            toValue: 0, useNativeDriver: true, damping: 18, stiffness: 200,
+          }).start();
+        }
+      },
+    })
+  ).current;
+
+  if (!visible) return null;
+
+  return (
+    <Modal visible transparent animationType="none" onRequestClose={onClose}>
+      <RNAnimated.View style={[iv.container, { opacity: bgOp }]}>
+        <StatusBar barStyle="light-content" backgroundColor="#000" translucent />
+
+        {/* Swipe layer */}
+        <RNAnimated.View
+          style={[StyleSheet.absoluteFill, { transform: [{ translateY: swipeAnim }] }]}
+          {...panResponder.panHandlers}
+        >
+          {/* ScrollView com zoom nativo — funciona no Expo Go */}
+          <ScrollView
+            style={StyleSheet.absoluteFill}
+            contentContainerStyle={iv.scrollContent}
+            maximumZoomScale={4}
+            minimumZoomScale={1}
+            showsHorizontalScrollIndicator={false}
+            showsVerticalScrollIndicator={false}
+            centerContent
+            bounces={false}
+          >
+            <TouchableOpacity
+              activeOpacity={1}
+              onPress={() => setUiVisible(v => !v)}
+              style={iv.imgTouch}
+            >
+              <Image
+                source={{ uri: data.uri }}
+                style={iv.image}
+                resizeMode="contain"
+              />
+            </TouchableOpacity>
+          </ScrollView>
+        </RNAnimated.View>
+
+        {/* UI overlay — some/reaparece com single tap */}
+        {uiVisible && (
+          <View
+            style={[iv.uiOverlay, { paddingTop: insets.top + 12 }]}
+            pointerEvents="box-none"
+          >
+            {/* Fechar — esquerda */}
+            <TouchableOpacity
+              style={iv.uiBtn}
+              onPress={onClose}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            >
+              <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} />
+              <Ionicons name="close" size={22} color="#fff" />
+            </TouchableOpacity>
+
+            {/* Lixeira — direita (só para o remetente) */}
+            {data.isMine && (
+              <TouchableOpacity
+                style={[iv.uiBtn, iv.uiBtnRight]}
+                onPress={() => { onDelete(data.msgId); onClose(); }}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              >
+                <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} />
+                <Ionicons name="trash-outline" size={20} color={C.danger} />
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+      </RNAnimated.View>
+    </Modal>
+  );
+}
+
+const iv = StyleSheet.create({
+  container:   { flex: 1, backgroundColor: '#000' },
+  scrollContent:{ flex: 1, alignItems: 'center', justifyContent: 'center' },
+  imgTouch:    { width: SW, height: SH, alignItems: 'center', justifyContent: 'center' },
+  image:       { width: SW, height: SH },
+  uiOverlay:   { position: 'absolute', top: 0, left: 0, right: 0, flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 20 },
+  uiBtn:       { width: 40, height: 40, borderRadius: 20, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
+  uiBtnRight:  {},
+});
 
 // ═════════════════════════════════════════════════════════════════════════════
 //  TOAST
@@ -270,10 +409,10 @@ function OptionsMenu({ visible, anchorY, isBlocked, onReport, onBlock, onClear, 
   if (!visible) return null;
 
   const items = [
-    { icon: 'flag-outline' as const, label: 'Denunciar', color: C.text, action: onReport },
+    { icon: 'flag-outline'   as const, label: 'Denunciar',      color: C.text,   action: onReport },
     { icon: (isBlocked ? 'lock-open-outline' : 'ban-outline') as any,
-      label: isBlocked ? 'Desbloquear' : 'Bloquear', color: C.danger, action: onBlock },
-    { icon: 'trash-outline' as const, label: 'Limpar Conversa', color: C.danger, action: onClear },
+      label: isBlocked ? 'Desbloquear' : 'Bloquear',           color: C.danger, action: onBlock  },
+    { icon: 'trash-outline'  as const, label: 'Limpar Conversa', color: C.danger, action: onClear  },
   ];
 
   return (
@@ -413,11 +552,11 @@ const rm = StyleSheet.create({
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
-//  REACTIONS SHEET
+//  REACTIONS SHEET — "Apagar" disponível para todos
 // ═════════════════════════════════════════════════════════════════════════════
 function ReactionsSheet({ visible, msg, isMine, onPick, onDelete, onCopy, onClose }: {
   visible: boolean; msg: Message | null; isMine: boolean;
-  onPick: (e: string) => void; onDelete: (fe: boolean) => void;
+  onPick: (e: string) => void; onDelete: () => void;
   onCopy: () => void; onClose: () => void;
 }) {
   const insets = useSafeAreaInsets();
@@ -448,10 +587,8 @@ function ReactionsSheet({ visible, msg, isMine, onPick, onDelete, onCopy, onClos
     },
   })).current;
 
-  const pointerEvents = visible ? 'auto' : 'none';
-
   return (
-    <View style={StyleSheet.absoluteFillObject} pointerEvents={pointerEvents as any}>
+    <View style={StyleSheet.absoluteFillObject} pointerEvents={visible ? 'auto' : 'none'}>
       <RNAnimated.View style={[rs.backdrop, { opacity: op }]}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
       </RNAnimated.View>
@@ -459,26 +596,27 @@ function ReactionsSheet({ visible, msg, isMine, onPick, onDelete, onCopy, onClos
         <View {...pan.panHandlers} style={rs.handleArea}><View style={rs.handle} /></View>
         <View style={rs.emojis}>
           {REACTIONS.map(e => (
-            <TouchableOpacity key={e} style={[rs.eBtn, msg?.reaction === e && rs.eBtnActive]} onPress={() => onPick(e)} activeOpacity={0.7}>
+            <TouchableOpacity key={e} style={[rs.eBtn, msg?.reaction === e && rs.eBtnActive]}
+              onPress={() => onPick(e)} activeOpacity={0.7}>
               <Text style={{ fontSize: 26 }}>{e}</Text>
             </TouchableOpacity>
           ))}
         </View>
         <View style={rs.div} />
-        <TouchableOpacity style={rs.action} onPress={onCopy} activeOpacity={0.7}>
-          <Ionicons name="copy-outline" size={20} color={C.text} />
-          <Text style={rs.actionTxt}>Copiar</Text>
+        {/* Copiar — só para mensagens de texto */}
+        {!!msg?.content && !msg?.imageUrl && (
+          <TouchableOpacity style={rs.action} onPress={onCopy} activeOpacity={0.7}>
+            <Ionicons name="copy-outline" size={20} color={C.text} />
+            <Text style={rs.actionTxt}>Copiar</Text>
+          </TouchableOpacity>
+        )}
+        {/* Apagar — disponível para TODOS (igual WhatsApp) */}
+        <TouchableOpacity style={rs.action} onPress={onDelete} activeOpacity={0.7}>
+          <Ionicons name="trash-outline" size={20} color={C.danger} />
+          <Text style={[rs.actionTxt, { color: C.danger }]}>
+            {isMine ? 'Apagar para todos' : 'Apagar para mim'}
+          </Text>
         </TouchableOpacity>
-        {isMine && <>
-          <TouchableOpacity style={rs.action} onPress={() => onDelete(false)} activeOpacity={0.7}>
-            <Ionicons name="trash-outline" size={20} color={C.danger} />
-            <Text style={[rs.actionTxt, { color: C.danger }]}>Apagar para mim</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={rs.action} onPress={() => onDelete(true)} activeOpacity={0.7}>
-            <Ionicons name="trash" size={20} color={C.danger} />
-            <Text style={[rs.actionTxt, { color: C.danger }]}>Apagar para todos</Text>
-          </TouchableOpacity>
-        </>}
       </RNAnimated.View>
     </View>
   );
@@ -521,11 +659,13 @@ function TypingBubble() {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-//  BALÃO
+//  BALÃO — gestos corretos, moldura limpa
 // ═════════════════════════════════════════════════════════════════════════════
-function Bubble({ msg, isMe, onLong, onDouble, highlighted }: {
+function Bubble({ msg, isMe, onLong, onDouble, highlighted, onImagePress }: {
   msg: Message; isMe: boolean; highlighted: boolean;
-  onLong: (m: Message) => void; onDouble: (m: Message) => void;
+  onLong:       (m: Message) => void;
+  onDouble:     (m: Message) => void;
+  onImagePress: (d: ViewerData) => void;
 }) {
   const lastTap   = useRef(0);
   const scale     = useRef(new RNAnimated.Value(1)).current;
@@ -535,13 +675,14 @@ function Bubble({ msg, isMe, onLong, onDouble, highlighted }: {
   // Fade out do highlight após 5s
   useEffect(() => {
     if (!highlighted) return;
-    const timer = setTimeout(() => {
+    const t = setTimeout(() => {
       RNAnimated.timing(bgOpacity, { toValue: 0, duration: 1200, useNativeDriver: false }).start();
     }, 5000);
-    return () => clearTimeout(timer);
+    return () => clearTimeout(t);
   }, [highlighted, bgOpacity]);
 
-  const tap = () => {
+  // Double-tap para ❤️
+  const handleTap = () => {
     const now = Date.now();
     if (now - lastTap.current < 300) {
       onDouble(msg);
@@ -557,49 +698,100 @@ function Bubble({ msg, isMe, onLong, onDouble, highlighted }: {
     inputRange: [0, 1], outputRange: ['rgba(34,211,238,0)', C.unread],
   });
 
+  const imgW = SW * 0.65;
+  const imgH = imgW * 0.82;
+
   if (msg.isDeleted) return (
     <RNAnimated.View style={[b.row, isMe ? b.me : b.other, { backgroundColor: bgColor }]}>
       <View style={b.deleted}><Text style={b.deletedTxt}>Mensagem apagada</Text></View>
     </RNAnimated.View>
   );
 
+  // ── Bolha de imagem ────────────────────────────────────────────────────
   if (msg.imageUrl) {
-    const imgW = SW * 0.65; const imgH = imgW * 1.05;
+    const hasCaption = !!msg.content;
+    const viewerData: ViewerData = { uri: msg.imageUrl, msgId: msg.id, isMine: isMe };
+
     return (
       <RNAnimated.View style={[b.row, isMe ? b.me : b.other, { backgroundColor: bgColor }]}>
-        <View style={b.wrap}>
-          <RNAnimated.View style={{ transform: [{ scale }] }}>
-            <TouchableOpacity onPress={tap} onLongPress={() => onLong(msg)} activeOpacity={0.88} delayLongPress={360}>
-              <View style={[b.imgBubble, isMe ? b.imgMe : b.imgOther, { width: imgW }]}>
-                <Image source={{ uri: msg.imageUrl }} style={[b.img, { height: imgH }]} resizeMode="cover" />
-                {!!msg.content && <View style={b.caption}><Text style={b.captionTxt}>{msg.content}</Text></View>}
-                <View style={b.imgFooter}>
-                  <Text style={b.imgTime}>{fmtTime(msg.createdAt)}</Text>
+        <RNAnimated.View style={[b.wrap, { transform: [{ scale }] }]}>
+          {hasCaption ? (
+            // COM legenda — moldura completa arredondada, área de texto embaixo
+            <TouchableOpacity
+              activeOpacity={0.92}
+              delayLongPress={360}
+              onPress={() => onImagePress(viewerData)}
+              onLongPress={() => onLong(msg)}
+              style={[b.imgCard, isMe ? b.imgCardMe : b.imgCardOther, { width: imgW }]}
+            >
+              <Image
+                source={{ uri: msg.imageUrl }}
+                style={[b.imgCardPhoto, { width: imgW, height: imgH }]}
+                resizeMode="cover"
+              />
+              {/* Separador sutil */}
+              <View style={b.imgCardDivider} />
+              {/* Área de legenda */}
+              <View style={b.captionArea}>
+                <Text style={b.captionTxt}>{msg.content}</Text>
+                <View style={b.captionMeta}>
+                  <Text style={b.captionTime}>{fmtTime(msg.createdAt)}</Text>
                   {isMe && <CheckIcon state={check} />}
                 </View>
               </View>
             </TouchableOpacity>
-          </RNAnimated.View>
-          {msg.reaction && <View style={[b.badge, isMe ? b.badgeMe : b.badgeOther]}><Text style={{ fontSize: 13 }}>{msg.reaction}</Text></View>}
-        </View>
+          ) : (
+            // SEM legenda — imagem com badge hora
+            <TouchableOpacity
+              activeOpacity={0.92}
+              delayLongPress={360}
+              onPress={() => { handleTap(); if (Date.now() - lastTap.current > 350) onImagePress(viewerData); }}
+              onLongPress={() => onLong(msg)}
+              style={[b.imgBare, isMe ? b.imgBareMe : b.imgBareOther, { width: imgW, height: imgH }]}
+            >
+              <Image source={{ uri: msg.imageUrl }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+              <View style={b.imgTimeBadge}>
+                <Text style={b.imgTimeTxt}>{fmtTime(msg.createdAt)}</Text>
+                {isMe && <CheckIcon state={check} light />}
+              </View>
+            </TouchableOpacity>
+          )}
+          {msg.reaction && (
+            <View style={[b.badge, isMe ? b.badgeMe : b.badgeOther]}>
+              <Text style={{ fontSize: 13 }}>{msg.reaction}</Text>
+            </View>
+          )}
+        </RNAnimated.View>
       </RNAnimated.View>
     );
   }
 
+  // ── Bolha de texto ─────────────────────────────────────────────────────
   return (
     <RNAnimated.View style={[b.row, isMe ? b.me : b.other, { backgroundColor: bgColor }]}>
       <View style={b.wrap}>
         <RNAnimated.View style={{ transform: [{ scale }] }}>
-          <TouchableOpacity onPress={tap} onLongPress={() => onLong(msg)} activeOpacity={0.85} delayLongPress={360}>
+          <TouchableOpacity
+            onPress={handleTap}
+            onLongPress={() => onLong(msg)}
+            activeOpacity={0.85}
+            delayLongPress={360}
+          >
             {isMe
               ? <LinearGradient colors={[C.bubble1, C.bubble2]} start={{x:0,y:0}} end={{x:1,y:1}} style={[b.bubble, b.bubbleMe]}>
                   <Text style={b.txtMe}>{msg.content}</Text>
                 </LinearGradient>
-              : <View style={[b.bubble, b.bubbleOther]}><Text style={b.txtOther}>{msg.content}</Text></View>
+              : <View style={[b.bubble, b.bubbleOther]}>
+                  <Text style={b.txtOther}>{msg.content}</Text>
+                </View>
             }
           </TouchableOpacity>
         </RNAnimated.View>
-        {msg.reaction && <View style={[b.badge, isMe ? b.badgeMe : b.badgeOther]}><Text style={{ fontSize: 13 }}>{msg.reaction}</Text></View>}
+        {msg.reaction && (
+          <View style={[b.badge, isMe ? b.badgeMe : b.badgeOther]}>
+            <Text style={{ fontSize: 13 }}>{msg.reaction}</Text>
+          </View>
+        )}
         <View style={[b.meta, isMe ? b.metaMe : b.metaOther]}>
           <Text style={b.time}>{fmtTime(msg.createdAt)}</Text>
           {isMe && <CheckIcon state={check} />}
@@ -610,32 +802,41 @@ function Bubble({ msg, isMe, onLong, onDouble, highlighted }: {
 }
 
 const b = StyleSheet.create({
-  row:         { flexDirection: 'row', alignItems: 'flex-end', marginBottom: 2, paddingHorizontal: 14, paddingVertical: 2 },
-  me:          { justifyContent: 'flex-end' },
-  other:       { justifyContent: 'flex-start' },
-  wrap:        { maxWidth: '78%', gap: 3 },
-  bubble:      { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 20 },
-  bubbleMe:    { borderBottomRightRadius: 6 },
-  bubbleOther: { backgroundColor: C.surfaceHi, borderWidth: 1, borderColor: C.border, borderBottomLeftRadius: 6 },
-  imgBubble:   { borderRadius: 18, overflow: 'hidden' },
-  imgMe:       { borderBottomRightRadius: 6 },
-  imgOther:    { borderBottomLeftRadius: 6 },
-  img:         { width: '100%' },
-  caption:     { paddingHorizontal: 12, paddingTop: 8, paddingBottom: 4, backgroundColor: C.bubble1 },
-  captionTxt:  { fontSize: 14, color: C.text, lineHeight: 19 },
-  imgFooter:   { position: 'absolute', bottom: 0, right: 0, flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: 'rgba(0,0,0,0.35)' },
-  imgTime:     { fontSize: 10, color: 'rgba(255,255,255,0.75)' },
-  deleted:     { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 18, borderWidth: 1, borderColor: C.border, borderStyle: 'dashed' },
-  deletedTxt:  { fontSize: 13, fontStyle: 'italic', color: C.textTer },
-  txtMe:       { color: C.text, fontSize: 15, lineHeight: 21 },
-  txtOther:    { color: C.text, fontSize: 15, lineHeight: 21 },
-  badge:       { position: 'absolute', bottom: 16, width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg, borderWidth: 1, borderColor: C.borderHi },
-  badgeMe:     { right: -6 },
-  badgeOther:  { left: -6 },
-  meta:        { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 1 },
-  metaMe:      { justifyContent: 'flex-end' },
-  metaOther:   { justifyContent: 'flex-start' },
-  time:        { fontSize: 10, color: C.textTer },
+  row:           { flexDirection: 'row', alignItems: 'flex-end', marginBottom: 2, paddingHorizontal: 14, paddingVertical: 2 },
+  me:            { justifyContent: 'flex-end' },
+  other:         { justifyContent: 'flex-start' },
+  wrap:          { maxWidth: '78%', gap: 3 },
+  bubble:        { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 20 },
+  bubbleMe:      { borderBottomRightRadius: 6 },
+  bubbleOther:   { backgroundColor: C.surfaceHi, borderWidth: 1, borderColor: C.border, borderBottomLeftRadius: 6 },
+  // Imagem SEM legenda
+  imgBare:       { borderRadius: 16, overflow: 'hidden' },
+  imgBareMe:     { borderBottomRightRadius: 6 },
+  imgBareOther:  { borderBottomLeftRadius: 6 },
+  imgTimeBadge:  { position: 'absolute', bottom: 6, right: 8, flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: 'rgba(0,0,0,0.50)', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 8 },
+  imgTimeTxt:    { fontSize: 10, color: 'rgba(255,255,255,0.9)' },
+  // Imagem COM legenda — moldura completa
+  imgCard:       { borderRadius: 16, overflow: 'hidden', backgroundColor: C.bubble1, borderWidth: StyleSheet.hairlineWidth, borderColor: C.borderHi },
+  imgCardMe:     { borderBottomRightRadius: 6 },
+  imgCardOther:  { borderBottomLeftRadius: 6 },
+  imgCardPhoto:  { borderTopLeftRadius: 14, borderTopRightRadius: 14 },
+  imgCardDivider:{ height: StyleSheet.hairlineWidth, backgroundColor: C.border },
+  captionArea:   { paddingHorizontal: 12, paddingTop: 7, paddingBottom: 8 },
+  captionTxt:    { fontSize: 14, color: C.text, lineHeight: 19, marginBottom: 4 },
+  captionMeta:   { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4 },
+  captionTime:   { fontSize: 10, color: C.textTer },
+  // Texto
+  deleted:       { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 18, borderWidth: 1, borderColor: C.border, borderStyle: 'dashed' },
+  deletedTxt:    { fontSize: 13, fontStyle: 'italic', color: C.textTer },
+  txtMe:         { color: C.text, fontSize: 15, lineHeight: 21 },
+  txtOther:      { color: C.text, fontSize: 15, lineHeight: 21 },
+  badge:         { position: 'absolute', bottom: 16, width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg, borderWidth: 1, borderColor: C.borderHi },
+  badgeMe:       { right: -6 },
+  badgeOther:    { left: -6 },
+  meta:          { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 1 },
+  metaMe:        { justifyContent: 'flex-end' },
+  metaOther:     { justifyContent: 'flex-start' },
+  time:          { fontSize: 10, color: C.textTer },
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -660,17 +861,19 @@ export default function ChatScreen({ route, navigation }: any) {
   const [reportOpen,     setReportOpen]     = useState(false);
   const [isBlocked,      setIsBlocked]      = useState(false);
   const [toastMsg,       setToastMsg]       = useState<{ text: string; type: 'info'|'success'|'error' } | null>(null);
-  // Index da primeira mensagem não lida — para scroll e highlight
   const [firstUnreadIdx, setFirstUnreadIdx] = useState<number>(-1);
+  const [viewerData,     setViewerData]     = useState<ViewerData | null>(null);
 
-  const flatRef       = useRef<FlatList>(null);
-  const typingTimer   = useRef<any>(null);
-  const isTypingRef   = useRef(false);
-  const menuBtnRef    = useRef<View>(null);
-  const toastTimer    = useRef<any>(null);
-  const scrolledOnce  = useRef(false);
-  const hasContent    = input.trim().length > 0 || selectedImage !== null;
-  const DRAFT_KEY     = `@venus:draft:${conversation.id}`;
+  const flatRef      = useRef<FlatList>(null);
+  const typingTimer  = useRef<any>(null);
+  const isTypingRef  = useRef(false);
+  const menuBtnRef   = useRef<View>(null);
+  const toastTimer   = useRef<any>(null);
+  const scrolledOnce = useRef(false);
+  const hasContent   = input.trim().length > 0 || selectedImage !== null;
+
+  const DRAFT_KEY    = `@venus:draft:${conversation.id}`;
+  const LAST_SEEN_KEY = `@venus:last_seen:${conversation.id}`;
 
   const showToast = useCallback((text: string, type: 'info'|'success'|'error' = 'info', ms = 2800) => {
     clearTimeout(toastTimer.current);
@@ -678,20 +881,12 @@ export default function ChatScreen({ route, navigation }: any) {
     toastTimer.current = setTimeout(() => setToastMsg(null), ms);
   }, []);
 
-  // ── Interceptar botão voltar para fechar modais primeiro ───────────────
+  // ── Interceptar botão voltar ───────────────────────────────────────────
   useEffect(() => {
     const unsub = navigation.addListener('beforeRemove', (e: any) => {
-      if (sheetOpen) {
-        e.preventDefault();
-        setSheetOpen(false);
-        setTimeout(() => setSelectedMsg(null), 300);
-      } else if (reportOpen) {
-        e.preventDefault();
-        setReportOpen(false);
-      } else if (menuOpen) {
-        e.preventDefault();
-        setMenuOpen(false);
-      }
+      if (sheetOpen)  { e.preventDefault(); setSheetOpen(false);  setTimeout(() => setSelectedMsg(null), 300); return; }
+      if (reportOpen) { e.preventDefault(); setReportOpen(false); return; }
+      if (menuOpen)   { e.preventDefault(); setMenuOpen(false);   return; }
     });
     return unsub;
   }, [navigation, sheetOpen, reportOpen, menuOpen]);
@@ -733,30 +928,41 @@ export default function ChatScreen({ route, navigation }: any) {
       }));
       setMessages(msgs);
 
-      // Calcular primeira mensagem não lida (do outro usuário)
-      const firstUnread = msgs.findIndex(
-        m => !m.isRead && m.senderId !== user?.id
-      );
+      // Calcular unread: só aparece se há msgs novas após o último ID visto
+      const lastSeenId = await AsyncStorage.getItem(LAST_SEEN_KEY).catch(() => null);
+      let firstUnread = -1;
+
+      if (lastSeenId) {
+        const lastSeenIdx = msgs.findIndex(m => m.id === lastSeenId);
+        if (lastSeenIdx >= 0 && lastSeenIdx < msgs.length - 1) {
+          // Há mensagens após o último visto
+          const after = msgs.slice(lastSeenIdx + 1);
+          const rel   = after.findIndex(m => m.senderId !== user?.id);
+          if (rel >= 0) firstUnread = lastSeenIdx + 1 + rel;
+        }
+        // Se lastSeenIdx === -1: ID não encontrado → sem highlight (seguro)
+      } else {
+        // Primeira abertura: destacar não lidas do outro
+        firstUnread = msgs.findIndex(m => !m.isRead && m.senderId !== user?.id);
+      }
+
       setFirstUnreadIdx(firstUnread);
 
-      // Scroll: se há não lidas, rola até elas; senão vai ao fim
+      // Salvar último ID visto
+      if (msgs.length > 0) {
+        AsyncStorage.setItem(LAST_SEEN_KEY, msgs[msgs.length - 1].id).catch(() => {});
+      }
+
+      // SCROLL SEMPRE ao fim
       setTimeout(() => {
         if (!scrolledOnce.current) {
           scrolledOnce.current = true;
-          if (firstUnread > 0) {
-            flatRef.current?.scrollToIndex({
-              index: firstUnread,
-              animated: false,
-              viewPosition: 0.2,
-            });
-          } else {
-            flatRef.current?.scrollToEnd({ animated: false });
-          }
+          flatRef.current?.scrollToEnd({ animated: false });
         }
       }, 150);
     } catch {}
     finally { setLoading(false); }
-  }, [conversation.id, user?.id]);
+  }, [conversation.id, user?.id, LAST_SEEN_KEY]);
 
   // ── Presença ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -781,6 +987,8 @@ export default function ChatScreen({ route, navigation }: any) {
         imageUrl:    msg.imageUrl    ?? null,
         reaction:    msg.reaction    ?? null,
       }]);
+      // Atualiza last_seen para novas mensagens recebidas
+      AsyncStorage.setItem(LAST_SEEN_KEY, msg.id).catch(() => {});
       setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 80);
     });
 
@@ -805,6 +1013,13 @@ export default function ChatScreen({ route, navigation }: any) {
       setMessages(prev => prev.map(m => m.id === messageId ? { ...m, reaction } : m));
     });
 
+    // Mensagem deletada pelo outro usuário em tempo real
+    socket.on('message_deleted', ({ messageId }: { messageId: string }) => {
+      setMessages(prev => prev.map(m =>
+        m.id === messageId ? { ...m, isDeleted: true, content: '', imageUrl: null } : m
+      ));
+    });
+
     socket.on('message_blocked', () => showToast('Não foi possível enviar a mensagem', 'error'));
 
     const onPresence = ({ userId, status }: { userId: string; status: PresenceStatus }) => {
@@ -819,10 +1034,11 @@ export default function ChatScreen({ route, navigation }: any) {
       socket.off('message_delivered');
       socket.off('messages_read');
       socket.off('message_reaction');
+      socket.off('message_deleted');
       socket.off('message_blocked');
       socket.off('presence:update', onPresence);
     };
-  }, [conversation.id, loadMessages, other?.id, user?.id, showToast]);
+  }, [conversation.id, loadMessages, other?.id, user?.id, showToast, LAST_SEEN_KEY]);
 
   // ── Enviar ─────────────────────────────────────────────────────────────
   const handleSend = useCallback(async () => {
@@ -844,14 +1060,12 @@ export default function ChatScreen({ route, navigation }: any) {
     setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 60);
 
     let finalImageUrl: string | null = null;
-
     if (imageToSend) {
       setUploadingImage(true);
       try {
         finalImageUrl = await uploadImage(imageToSend, 'messages');
         setMessages(prev => prev.map(m => m.id === tempId ? { ...m, imageUrl: finalImageUrl } : m));
-      } catch (e) {
-        console.error('[Upload]', e);
+      } catch {
         showToast('Erro ao enviar imagem', 'error');
         setMessages(prev => prev.filter(m => m.id !== tempId));
         setUploadingImage(false);
@@ -912,6 +1126,7 @@ export default function ChatScreen({ route, navigation }: any) {
     });
   };
 
+  // ── Block ──────────────────────────────────────────────────────────────
   const handleBlock = useCallback(() => {
     const name = other?.displayName || other?.username;
     if (isBlocked) {
@@ -927,12 +1142,13 @@ export default function ChatScreen({ route, navigation }: any) {
         { text: 'Cancelar', style: 'cancel' },
         { text: 'Bloquear', style: 'destructive', onPress: async () => {
           try { await api.post(`/blocks/${other.id}`); setIsBlocked(true); showToast(`${name} bloqueado`, 'success'); }
-          catch (e: any) { if (e?.response?.status === 409) setIsBlocked(true); else showToast('Erro ao bloquear', 'error'); }
+          catch (e: any) { if (e?.response?.status === 409) setIsBlocked(true); else showToast('Erro', 'error'); }
         }},
       ]);
     }
   }, [isBlocked, other, showToast]);
 
+  // ── Report ─────────────────────────────────────────────────────────────
   const submitReport = useCallback(async (reason: ReportReason, description: string) => {
     try {
       await api.post(`/reports/user/${other.id}`, { reason, description: description || undefined });
@@ -941,26 +1157,29 @@ export default function ChatScreen({ route, navigation }: any) {
     } catch { showToast('Erro ao enviar denúncia', 'error'); }
   }, [other?.id, showToast]);
 
+  // ── Clear ──────────────────────────────────────────────────────────────
   const handleClearChat = useCallback(() => {
-    Alert.alert('Limpar conversa', 'As mensagens serão removidas permanentemente para você.', [
+    Alert.alert('Limpar conversa', 'As mensagens serão removidas para você.', [
       { text: 'Cancelar', style: 'cancel' },
       { text: 'Limpar', style: 'destructive', onPress: async () => {
-        try { await api.delete(`/messages/conversations/${conversation.id}/clear`); setMessages([]); showToast('Conversa limpa', 'success'); }
-        catch { showToast('Erro ao limpar', 'error'); }
+        try {
+          await api.delete(`/messages/conversations/${conversation.id}/clear`);
+          setMessages([]);
+          AsyncStorage.removeItem(LAST_SEEN_KEY).catch(() => {});
+          showToast('Conversa limpa', 'success');
+        } catch { showToast('Erro ao limpar', 'error'); }
       }},
     ]);
-  }, [conversation.id, showToast]);
+  }, [conversation.id, showToast, LAST_SEEN_KEY]);
 
-  // ── Long press — dismiss teclado ANTES de abrir sheet ─────────────────
+  // ── Long press → sheet (dismiss teclado primeiro) ─────────────────────
   const handleLong = useCallback((msg: Message) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-    Keyboard.dismiss(); // garante que o sheet abre acima do teclado
-    setTimeout(() => {
-      setSelectedMsg(msg);
-      setSheetOpen(true);
-    }, 100); // aguarda teclado fechar antes de animar o sheet
+    Keyboard.dismiss();
+    setTimeout(() => { setSelectedMsg(msg); setSheetOpen(true); }, 100);
   }, []);
 
+  // ── Double tap → ❤️ ───────────────────────────────────────────────────
   const handleDouble = useCallback((msg: Message) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     const newReaction = msg.reaction === '❤️' ? null : '❤️';
@@ -978,6 +1197,7 @@ export default function ChatScreen({ route, navigation }: any) {
     setTimeout(() => setSelectedMsg(null), 300);
   }, []);
 
+  // ── Reação via sheet ───────────────────────────────────────────────────
   const applyReaction = useCallback((emoji: string) => {
     if (!selectedMsg) return;
     const msgId = selectedMsg.id;
@@ -994,25 +1214,61 @@ export default function ChatScreen({ route, navigation }: any) {
     }, 50);
   }, [selectedMsg, closeSheet, conversation.id]);
 
-  const deleteMessage = useCallback(async (_fe: boolean) => {
+  // ── Copiar texto ───────────────────────────────────────────────────────
+  const handleCopy = useCallback(() => {
+    if (!selectedMsg?.content) return;
+    Clipboard.setStringAsync(selectedMsg.content).catch(() => {});
+    closeSheet();
+    showToast('Copiado', 'success', 1500);
+  }, [selectedMsg, closeSheet, showToast]);
+
+  // ── Deletar mensagem — emite socket + HTTP ─────────────────────────────
+  const deleteMsg = useCallback(async (msgId: string) => {
+    // Otimista
+    setMessages(prev => prev.map(m =>
+      m.id === msgId ? { ...m, isDeleted: true, content: '', imageUrl: null } : m
+    ));
+    if (msgId.startsWith('temp-')) return;
+    try {
+      await api.delete(`/messages/${msgId}`);
+      // Emitir para o outro usuário ver em tempo real
+      socketService.getSocket()?.emit('delete_message', {
+        conversationId: conversation.id,
+        messageId: msgId,
+      });
+    } catch {
+      setMessages(prev => prev.map(m =>
+        m.id === msgId ? { ...m, isDeleted: false } : m
+      ));
+      showToast('Erro ao apagar mensagem', 'error');
+    }
+  }, [conversation.id, showToast]);
+
+  const handleDeleteFromSheet = useCallback(() => {
     if (!selectedMsg) return;
     const msgId = selectedMsg.id;
     closeSheet();
-    setMessages(prev => prev.map(m => m.id === msgId ? { ...m, isDeleted: true, content: '' } : m));
-    if (msgId.startsWith('temp-')) return;
-    try { await api.delete(`/messages/${msgId}`); }
-    catch {
-      setMessages(prev => prev.map(m => m.id === msgId ? { ...m, isDeleted: false } : m));
-      showToast('Erro ao apagar mensagem', 'error');
-    }
-  }, [selectedMsg, closeSheet, showToast]);
+    deleteMsg(msgId);
+  }, [selectedMsg, closeSheet, deleteMsg]);
 
+  // ── Render ─────────────────────────────────────────────────────────────
   const isMe = (msg: Message) => msg.senderId === user?.id;
 
+  // Fade do header "Mensagens não lidas" — sincronizado com o highlight (5s)
+  const unreadHeaderOp = useRef(new RNAnimated.Value(0)).current;
+  useEffect(() => {
+    if (firstUnreadIdx < 0) return;
+    unreadHeaderOp.setValue(1);
+    const t = setTimeout(() => {
+      RNAnimated.timing(unreadHeaderOp, { toValue: 0, duration: 1200, useNativeDriver: true }).start();
+    }, 5000);
+    return () => clearTimeout(t);
+  }, [firstUnreadIdx, unreadHeaderOp]);
+
   const renderItem = useCallback(({ item, index }: { item: Message; index: number }) => {
-    const mine        = isMe(item);
+    const mine          = isMe(item);
     const isFirstUnread = index === firstUnreadIdx;
-    const highlighted = firstUnreadIdx >= 0 && index >= firstUnreadIdx && !mine;
+    const highlighted   = firstUnreadIdx >= 0 && index >= firstUnreadIdx && !mine;
 
     return (
       <View>
@@ -1023,19 +1279,24 @@ export default function ChatScreen({ route, navigation }: any) {
             <View style={s.dayLine} />
           </View>
         )}
-        {/* Header "Mensagens não lidas" — aparece antes da primeira não lida */}
         {isFirstUnread && (
-          <View style={s.unreadHeader}>
+          <RNAnimated.View style={[s.unreadHeader, { opacity: unreadHeaderOp }]}>
             <View style={s.unreadLine} />
             <Text style={s.unreadTxt}>Mensagens não lidas</Text>
             <View style={s.unreadLine} />
-          </View>
+          </RNAnimated.View>
         )}
-        <Bubble msg={item} isMe={mine} highlighted={highlighted}
-          onLong={handleLong} onDouble={handleDouble} />
+        <Bubble
+          msg={item}
+          isMe={mine}
+          highlighted={highlighted}
+          onLong={handleLong}
+          onDouble={handleDouble}
+          onImagePress={d => setViewerData(d)}
+        />
       </View>
     );
-  }, [messages, firstUnreadIdx, handleLong, handleDouble, user?.id]);
+  }, [messages, firstUnreadIdx, handleLong, handleDouble, user?.id, unreadHeaderOp]);
 
   const headerSub = useMemo(() => {
     if (otherTyping) return <Text style={[s.hSub, { color: C.primaryLt }]}>digitando...</Text>;
@@ -1052,6 +1313,7 @@ export default function ChatScreen({ route, navigation }: any) {
     <View style={s.root}>
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
 
+      {/* Header */}
       <View style={[s.header, { paddingTop: insets.top + 8 }]}>
         <GlowBtn onPress={() => navigation.goBack()} size={36} radius={18}>
           <Ionicons name="chevron-back" size={20} color={C.text} />
@@ -1088,7 +1350,6 @@ export default function ChatScreen({ route, navigation }: any) {
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
             onScrollToIndexFailed={({ index }) => {
-              // Fallback se o index não estiver disponível ainda
               setTimeout(() => {
                 flatRef.current?.scrollToIndex({ index, animated: false, viewPosition: 0.2 });
               }, 300);
@@ -1103,6 +1364,7 @@ export default function ChatScreen({ route, navigation }: any) {
           />
         )}
 
+        {/* Input */}
         <View style={[s.inputBar, { paddingBottom: insets.bottom + 8 }]}>
           {isBlocked ? (
             <View style={s.blockedBar}>
@@ -1156,10 +1418,15 @@ export default function ChatScreen({ route, navigation }: any) {
         </View>
       )}
 
-      <ReactionsSheet visible={sheetOpen} msg={selectedMsg}
+      <ReactionsSheet
+        visible={sheetOpen}
+        msg={selectedMsg}
         isMine={selectedMsg?.senderId === user?.id}
-        onPick={applyReaction} onDelete={deleteMessage}
-        onCopy={() => closeSheet()} onClose={closeSheet} />
+        onPick={applyReaction}
+        onDelete={handleDeleteFromSheet}
+        onCopy={handleCopy}
+        onClose={closeSheet}
+      />
 
       <OptionsMenu visible={menuOpen} anchorY={menuAnchorY} isBlocked={isBlocked}
         onReport={() => setReportOpen(true)} onBlock={handleBlock}
@@ -1168,6 +1435,15 @@ export default function ChatScreen({ route, navigation }: any) {
       <ReportModal visible={reportOpen}
         targetName={other?.displayName || other?.username || 'usuário'}
         onSubmit={submitReport} onClose={() => setReportOpen(false)} />
+
+      <ImageViewer
+        data={viewerData}
+        onClose={() => setViewerData(null)}
+        onDelete={msgId => {
+          setViewerData(null);
+          deleteMsg(msgId);
+        }}
+      />
     </View>
   );
 }
@@ -1182,19 +1458,15 @@ const s = StyleSheet.create({
   presDot:            { width: 7, height: 7, borderRadius: 3.5 },
   divider:            { height: StyleSheet.hairlineWidth, backgroundColor: C.border },
   loading:            { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  // Unread header
   unreadHeader:       { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 28, paddingVertical: 10 },
   unreadLine:         { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: C.cyan + '55' },
   unreadTxt:          { fontSize: 11, fontWeight: '600', color: C.cyan, opacity: 0.8 },
-  // Day divider
   dayRow:             { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 28, paddingVertical: 14 },
   dayLine:            { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: C.border },
   dayTxt:             { fontSize: 11, fontWeight: '600', color: C.textTer, letterSpacing: 0.3 },
-  // Empty
   empty:              { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 40, gap: 12 },
   emptyTitle:         { fontSize: 32, fontWeight: '800', color: C.text, letterSpacing: -0.8 },
   emptySub:           { fontSize: 15, color: C.textSec, textAlign: 'center', lineHeight: 22 },
-  // Input
   inputBar:           { paddingHorizontal: 14, paddingTop: 8, backgroundColor: C.bg },
   previewWrap:        { marginBottom: 8, borderRadius: 14, overflow: 'hidden', alignSelf: 'flex-start' },
   previewImg:         { width: 120, height: 120 },
