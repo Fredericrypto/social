@@ -12,6 +12,12 @@ import { Block } from '../blocks/entities/block.entity';
 import { Conversation } from './entities/conversation.entity';
 import { UsersService } from '../users/users.service';
 
+class SendMessageWsDto {
+  conversationId: string;
+  content?: string;
+  imageUrl?: string;
+}
+
 @WebSocketGateway({ cors: { origin: '*' }, namespace: '/messages' })
 export class MessagesGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer() server: Server;
@@ -105,11 +111,7 @@ export class MessagesGateway implements OnGatewayConnection, OnGatewayDisconnect
   @SubscribeMessage('send_message')
   async handleMessage(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: {
-      conversationId: string;
-      content?: string;
-      imageUrl?: string;
-    },
+    @MessageBody() data: SendMessageWsDto,
   ) {
     const senderId = client.data.userId;
     if (!senderId) return;
