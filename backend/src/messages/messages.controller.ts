@@ -5,7 +5,7 @@ import {
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { MessagesService } from './messages.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { IsString, MinLength } from 'class-validator';
+import { IsString, MinLength, IsOptional } from 'class-validator';
 
 class StartConversationDto {
   @IsString()
@@ -16,6 +16,10 @@ class SendMessageDto {
   @IsString()
   @MinLength(1)
   content: string;
+
+  @IsOptional()
+  @IsString()
+  imageUrl?: string;
 }
 
 @ApiTags('messages')
@@ -35,6 +39,17 @@ export class MessagesController {
     return this.messagesService.getOrCreateConversation(req.user.id, dto.userId);
   }
 
+  // ── IMPORTANTE: rotas estáticas ANTES das dinâmicas (:id) ─────────────────
+  // Se @Delete('conversations/:id/clear') vier depois de @Get('conversations/:id'),
+  // o NestJS interpreta "clear" como o valor de :id e retorna 404.
+
+  /** Limpar conversa — persiste lastClearedAt para o usuário solicitante */
+  @Delete('conversations/:id/clear')
+  @HttpCode(204)
+  async clearConversation(@Request() req, @Param('id') id: string) {
+    await this.messagesService.clearConversation(id, req.user.id);
+  }
+
   @Get('conversations/:id')
   getMessages(
     @Request() req,
@@ -50,14 +65,17 @@ export class MessagesController {
     @Param('id') id: string,
     @Body() dto: SendMessageDto,
   ) {
-    return this.messagesService.sendMessage(req.user.id, id, dto.content);
+    return this.messagesService.sendMessage(req.user.id, id, dto.content, dto.imageUrl);
   }
 
-  /** Limpar conversa — persiste lastClearedAt para o usuário solicitante */
-  @Delete('conversations/:id/clear')
+  /** Apagar mensagem individual — marca isDeleted=true no banco */
+  @Delete(':messageId')
   @HttpCode(204)
-  async clearConversation(@Request() req, @Param('id') id: string) {
-    await this.messagesService.clearConversation(id, req.user.id);
+  async deleteMessage(
+    @Request() req,
+    @Param('messageId') messageId: string,
+  ) {
+    await this.messagesService.deleteMessage(messageId, req.user.id);
   }
 
   @Get('unread-count')

@@ -8,6 +8,7 @@ import { MessagesGateway } from './messages.gateway';
 import { Message } from './entities/message.entity';
 import { Conversation } from './entities/conversation.entity';
 import { Block } from '../blocks/entities/block.entity';
+import { UsersModule } from '../users/users.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { Block } from '../blocks/entities/block.entity';
         secret: config.get('JWT_SECRET'),
       }),
     }),
+    UsersModule, // exporta UsersService para o gateway usar
   ],
   controllers: [MessagesController],
   providers: [MessagesService, MessagesGateway],

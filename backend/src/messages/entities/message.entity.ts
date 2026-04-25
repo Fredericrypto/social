@@ -11,8 +11,13 @@ export class Message {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column('text')
+  /** Texto da mensagem — vazio se for só imagem */
+  @Column({ type: 'text', default: '' })
   content: string;
+
+  /** URL da imagem no Supabase Storage (bucket: messages) */
+  @Column({ type: 'text', nullable: true, default: null })
+  imageUrl: string | null;
 
   @Column()
   senderId: string;
@@ -20,12 +25,9 @@ export class Message {
   @Column()
   conversationId: string;
 
-  /** null = só enviado ao servidor (1 check slate)
-   *  preenchido = entregue ao dispositivo (2 checks slate)  */
   @Column({ type: 'timestamptz', nullable: true, default: null })
   deliveredAt: Date | null;
 
-  /** false = não lido / true = lido (2 checks cyan) */
   @Column({ default: false })
   isRead: boolean;
 

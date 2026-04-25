@@ -10,18 +10,18 @@ import { Repository } from 'typeorm';
 import { MessagesService } from './messages.service';
 import { Block } from '../blocks/entities/block.entity';
 import { Conversation } from './entities/conversation.entity';
+import { UsersService } from '../users/users.service';
 
 @WebSocketGateway({ cors: { origin: '*' }, namespace: '/messages' })
 export class MessagesGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer() server: Server;
 
-  // userId → socketId
-  private userSockets = new Map<string, string>();
-  // socketId → Set<conversationId>
-  private socketRooms = new Map<string, Set<string>>();
+  private userSockets = new Map<string, string>();   // userId → socketId
+  private socketRooms = new Map<string, Set<string>>(); // socketId → Set<convId>
 
   constructor(
     private readonly messagesService: MessagesService,
+    private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
     private readonly config: ConfigService,
     @InjectRepository(Block)
@@ -43,21 +43,31 @@ export class MessagesGateway implements OnGatewayConnection, OnGatewayDisconnect
       this.userSockets.set(payload.sub, client.id);
       this.socketRooms.set(client.id, new Set());
       client.join(`user:${payload.sub}`);
+
+      // Marcar como online no banco
+      try {
+        await this.usersService.update(payload.sub, { presenceStatus: 'online' });
+      } catch { /* não quebra a conexão */ }
     } catch {
       client.disconnect();
     }
   }
 
-  handleDisconnect(client: Socket) {
-    if (client.data.userId) this.userSockets.delete(client.data.userId);
+  // ── Desconexão — atualiza presença para offline ────────────────────────
+  async handleDisconnect(client: Socket) {
+    const userId = client.data.userId;
+    if (userId) {
+      this.userSockets.delete(userId);
+      try {
+        await this.usersService.update(userId, { presenceStatus: 'offline' });
+        // Notifica todos via socket para atualizar o UI em tempo real
+        this.server.emit('presence:update', { userId, status: 'offline' });
+      } catch { /* silencioso */ }
+    }
     this.socketRooms.delete(client.id);
   }
 
   // ── join_conversation ─────────────────────────────────────────────────────
-  // Ao entrar na conversa:
-  //  1. Entra na sala Socket.io
-  //  2. Marca mensagens recebidas como lidas
-  //  3. Notifica remetentes via 'messages_read'
   @SubscribeMessage('join_conversation')
   async handleJoin(
     @ConnectedSocket() client: Socket,
@@ -71,11 +81,9 @@ export class MessagesGateway implements OnGatewayConnection, OnGatewayDisconnect
 
     try {
       const senderIds = await this.messagesService.markConversationRead(
-        data.conversationId,
-        userId,
+        data.conversationId, userId,
       );
-      const unique = [...new Set(senderIds)];
-      for (const sid of unique) {
+      for (const sid of [...new Set(senderIds)]) {
         this.server.to(`user:${sid}`).emit('messages_read', {
           conversationId: data.conversationId,
         });
@@ -97,31 +105,38 @@ export class MessagesGateway implements OnGatewayConnection, OnGatewayDisconnect
   @SubscribeMessage('send_message')
   async handleMessage(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { conversationId: string; content: string },
+    @MessageBody() data: {
+      conversationId: string;
+      content?: string;
+      imageUrl?: string;
+    },
   ) {
     const senderId = client.data.userId;
-    if (!senderId || !data.content?.trim()) return;
+    if (!senderId) return;
+    if (!data.content?.trim() && !data.imageUrl) return; // nada a enviar
 
     // ── HARD BLOCK ──────────────────────────────────────────────────────────
-    // Descobrir quem é o destinatário desta conversa
     const conv = await this.convRepo.findOne({
       where: { id: data.conversationId },
-      select: ['participantAId', 'participantBId'],
+      select: ['participantAId', 'participantBId'] as any,
     });
     if (!conv) return;
 
-    const recipientId =
-      conv.participantAId === senderId
-        ? conv.participantBId
-        : conv.participantAId;
+    const recipientId = conv.participantAId === senderId
+      ? conv.participantBId
+      : conv.participantAId;
 
-    // Checar se o destinatário bloqueou o remetente
+    // Verifica em ambas as direções:
+    // - destinatário bloqueou remetente (recipientId bloqueou senderId)
+    // - remetente bloqueou destinatário (senderId bloqueou recipientId)
     const blocked = await this.blockRepo.findOne({
-      where: { blockerId: recipientId, blockedId: senderId },
+      where: [
+        { blockerId: recipientId, blockedId: senderId },
+        { blockerId: senderId,    blockedId: recipientId },
+      ],
     });
 
     if (blocked) {
-      // Rejeita silenciosamente — envia erro só para o remetente
       client.emit('message_blocked', {
         conversationId: data.conversationId,
         reason: 'blocked',
@@ -129,34 +144,26 @@ export class MessagesGateway implements OnGatewayConnection, OnGatewayDisconnect
       return;
     }
 
-    // ── Salvar e emitir ─────────────────────────────────────────────────────
+    // ── Salvar ──────────────────────────────────────────────────────────────
     const message = await this.messagesService.sendMessage(
       senderId,
       data.conversationId,
-      data.content.trim(),
+      data.content?.trim() || '',
+      data.imageUrl ?? null,
     );
 
-    // Emitir para todos na sala (inclui o remetente — confirmação de envio)
-    this.server
-      .to(`conv:${data.conversationId}`)
-      .emit('new_message', message);
+    this.server.to(`conv:${data.conversationId}`).emit('new_message', message);
 
     // ── Delivered ──────────────────────────────────────────────────────────
-    // Se o destinatário está CONECTADO (mesmo que não esteja na sala da conversa),
-    // marcar como entregue imediatamente e notificar o remetente.
-    const recipientSocketId = this.userSockets.get(recipientId);
-    if (recipientSocketId) {
+    if (this.userSockets.has(recipientId)) {
       await this.messagesService.markDelivered(message.id);
-      // Notifica o remetente: este check específico virou 2 checks slate
       this.server.to(`user:${senderId}`).emit('message_delivered', {
         messageId: message.id,
         conversationId: data.conversationId,
       });
     }
 
-    // ── Read ───────────────────────────────────────────────────────────────
-    // Se o destinatário está com a conversa ABERTA (está na sala),
-    // a mensagem já foi lida — marcar e notificar.
+    // ── Read (destinatário com chat aberto) ────────────────────────────────
     const roomSockets = await this.server
       .in(`conv:${data.conversationId}`)
       .fetchSockets();
@@ -166,8 +173,7 @@ export class MessagesGateway implements OnGatewayConnection, OnGatewayDisconnect
 
     if (recipientInRoom) {
       const senderIds = await this.messagesService.markConversationRead(
-        data.conversationId,
-        recipientId,
+        data.conversationId, recipientId,
       );
       if (senderIds.length) {
         this.server.to(`user:${senderId}`).emit('messages_read', {
