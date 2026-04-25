@@ -1,4 +1,7 @@
-import { Controller, Get, Post, Body, Param, Query, UseGuards, Request } from '@nestjs/common';
+import {
+  Controller, Get, Post, Delete, Body, Param,
+  Query, UseGuards, Request, HttpCode,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { MessagesService } from './messages.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -33,13 +36,28 @@ export class MessagesController {
   }
 
   @Get('conversations/:id')
-  getMessages(@Request() req, @Param('id') id: string, @Query('page') page = 1) {
+  getMessages(
+    @Request() req,
+    @Param('id') id: string,
+    @Query('page') page = 1,
+  ) {
     return this.messagesService.getMessages(id, req.user.id, +page);
   }
 
   @Post('conversations/:id')
-  sendMessage(@Request() req, @Param('id') id: string, @Body() dto: SendMessageDto) {
+  sendMessage(
+    @Request() req,
+    @Param('id') id: string,
+    @Body() dto: SendMessageDto,
+  ) {
     return this.messagesService.sendMessage(req.user.id, id, dto.content);
+  }
+
+  /** Limpar conversa — persiste lastClearedAt para o usuário solicitante */
+  @Delete('conversations/:id/clear')
+  @HttpCode(204)
+  async clearConversation(@Request() req, @Param('id') id: string) {
+    await this.messagesService.clearConversation(id, req.user.id);
   }
 
   @Get('unread-count')

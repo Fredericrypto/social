@@ -22,6 +22,15 @@ export class Conversation {
   @Column({ nullable: true })
   lastMessageAt: Date;
 
+  /** Timestamp em que o participante A limpou a conversa.
+   *  getMessages filtra mensagens com createdAt < esse valor para esse usuário. */
+  @Column({ type: 'timestamptz', nullable: true, default: null })
+  lastClearedAtA: Date | null;
+
+  /** Idem para o participante B. */
+  @Column({ type: 'timestamptz', nullable: true, default: null })
+  lastClearedAtB: Date | null;
+
   @ManyToOne(() => User)
   @JoinColumn({ name: 'participantAId' })
   participantA: User;

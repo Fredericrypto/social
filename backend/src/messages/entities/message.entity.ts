@@ -20,6 +20,12 @@ export class Message {
   @Column()
   conversationId: string;
 
+  /** null = só enviado ao servidor (1 check slate)
+   *  preenchido = entregue ao dispositivo (2 checks slate)  */
+  @Column({ type: 'timestamptz', nullable: true, default: null })
+  deliveredAt: Date | null;
+
+  /** false = não lido / true = lido (2 checks cyan) */
   @Column({ default: false })
   isRead: boolean;
 
