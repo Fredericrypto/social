@@ -25,7 +25,7 @@ class SendMessageDto {
 class ReactDto {
   @IsOptional()
   @IsString()
-  emoji?: string | null; // null = remover reação
+  emoji?: string | null; // null = remover reação do userId
 }
 
 @ApiTags('messages')
@@ -45,7 +45,6 @@ export class MessagesController {
     return this.messagesService.getOrCreateConversation(req.user.id, dto.userId);
   }
 
-  // Rotas estáticas ANTES das dinâmicas — evita captura errada pelo :id
   @Delete('conversations/:id/clear')
   @HttpCode(204)
   async clearConversation(@Request() req, @Param('id') id: string) {
@@ -72,7 +71,11 @@ export class MessagesController {
     );
   }
 
-  /** Reagir a uma mensagem — PATCH /messages/:id/reaction */
+  /** Reagir — PATCH /messages/:id/reaction
+   *  Body: { emoji: '❤️' } para reagir
+   *  Body: { emoji: null } para remover
+   *  Toggle: mesmo emoji enviado duas vezes remove a reação
+   */
   @Patch(':id/reaction')
   async reactToMessage(
     @Request() req,
@@ -82,7 +85,6 @@ export class MessagesController {
     return this.messagesService.reactToMessage(id, req.user.id, dto.emoji ?? null);
   }
 
-  /** Apagar mensagem individual */
   @Delete(':id')
   @HttpCode(204)
   async deleteMessage(@Request() req, @Param('id') id: string) {

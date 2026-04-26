@@ -5,6 +5,11 @@ import {
 import { User } from '../../users/entities/user.entity';
 import { Conversation } from './conversation.entity';
 
+export interface MessageReaction {
+  emoji:  string;
+  userId: string;
+}
+
 @Entity('messages')
 @Index(['conversationId', 'createdAt'])
 export class Message {
@@ -17,9 +22,13 @@ export class Message {
   @Column({ type: 'text', nullable: true, default: null })
   imageUrl: string | null;
 
-  /** Emoji de reação — ex: '❤️', '😂'. Null = sem reação. */
-  @Column({ type: 'text', nullable: true, default: null })
-  reaction: string | null;
+  /**
+   * Array de reações. Cada user pode ter UMA reação por vez.
+   * Múltiplos emojis diferentes são permitidos (estilo Telegram).
+   * Ex: [{ emoji: '❤️', userId: 'abc' }, { emoji: '😂', userId: 'def' }]
+   */
+  @Column({ type: 'jsonb', nullable: true, default: null })
+  reactions: MessageReaction[] | null;
 
   @Column()
   senderId: string;

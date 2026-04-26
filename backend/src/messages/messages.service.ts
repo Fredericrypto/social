@@ -4,7 +4,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, Not } from 'typeorm';
 import { Conversation } from './entities/conversation.entity';
-import { Message } from './entities/message.entity';
+import { Message, MessageReaction } from './entities/message.entity';
 
 @Injectable()
 export class MessagesService {
@@ -95,12 +95,17 @@ export class MessagesService {
     return message!;
   }
 
-  /** Salva a reação no banco. Qualquer participante da conversa pode reagir. */
+  /**
+   * Reagir a uma mensagem — estilo Telegram.
+   * Cada usuário pode ter UMA reação por vez por mensagem.
+   * Múltiplos usuários podem reagir com emojis diferentes.
+   * Reagir com o mesmo emoji remove a reação (toggle).
+   */
   async reactToMessage(
     messageId: string,
     userId: string,
-    reaction: string | null,
-  ): Promise<Message> {
+    emoji: string | null,
+  ): Promise<{ reactions: MessageReaction[] }> {
     const msg = await this.msgRepo.findOne({ where: { id: messageId } });
     if (!msg) throw new NotFoundException();
 
@@ -109,8 +114,31 @@ export class MessagesService {
     if (conv.participantAId !== userId && conv.participantBId !== userId)
       throw new ForbiddenException();
 
-    await this.msgRepo.update(messageId, { reaction });
-    return { ...msg, reaction };
+    // Clonar array atual ou iniciar vazio
+    let reactions: MessageReaction[] = Array.isArray(msg.reactions) ? [...msg.reactions] : [];
+
+    if (!emoji) {
+      // Remover reação do userId
+      reactions = reactions.filter(r => r.userId !== userId);
+    } else {
+      const existing = reactions.find(r => r.userId === userId);
+      if (existing) {
+        if (existing.emoji === emoji) {
+          // Toggle: mesmo emoji → remover
+          reactions = reactions.filter(r => r.userId !== userId);
+        } else {
+          // Trocar emoji
+          existing.emoji = emoji;
+        }
+      } else {
+        // Nova reação
+        reactions.push({ emoji, userId });
+      }
+    }
+
+    const finalReactions = reactions.length > 0 ? reactions : null;
+    await this.msgRepo.update(messageId, { reactions: finalReactions });
+    return { reactions: finalReactions ?? [] };
   }
 
   async deleteMessage(messageId: string, userId: string): Promise<void> {
