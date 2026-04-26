@@ -1222,16 +1222,24 @@ export default function ChatScreen({ route, navigation }: any) {
       Alert.alert('Desbloquear', `Desbloquear ${name}?`, [
         { text: 'Cancelar', style: 'cancel' },
         { text: 'Desbloquear', onPress: async () => {
-          try { await api.delete(`/blocks/${other.id}`); setIsBlocked(false); showToast(`${name} desbloqueado`, 'success'); }
-          catch { showToast('Erro ao desbloquear', 'error'); }
+          try {
+            await api.delete(`/blocks/${other.id}`);
+            setIsBlocked(false);
+            setBlockedIds(prev => { const s = new Set(prev); s.delete(other.id); return s; });
+            showToast(`${name} desbloqueado`, 'success');
+          } catch { showToast('Erro ao desbloquear', 'error'); }
         }},
       ]);
     } else {
       Alert.alert('Bloquear', `Bloquear ${name}?`, [
         { text: 'Cancelar', style: 'cancel' },
         { text: 'Bloquear', style: 'destructive', onPress: async () => {
-          try { await api.post(`/blocks/${other.id}`); setIsBlocked(true); showToast(`${name} bloqueado`, 'success'); }
-          catch (e: any) { if (e?.response?.status === 409) setIsBlocked(true); else showToast('Erro', 'error'); }
+          try {
+            await api.post(`/blocks/${other.id}`);
+            setIsBlocked(true);
+            setBlockedIds(prev => new Set([...prev, other.id]));
+            showToast(`${name} bloqueado`, 'success');
+          } catch (e: any) { if (e?.response?.status === 409) setIsBlocked(true); else showToast('Erro', 'error'); }
         }},
       ]);
     }
