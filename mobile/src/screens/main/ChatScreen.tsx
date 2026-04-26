@@ -970,8 +970,11 @@ export default function ChatScreen({ route, navigation }: any) {
 
   // ── Draft ──────────────────────────────────────────────────────────────
   useEffect(() => {
-    AsyncStorage.getItem(DRAFT_KEY).then(s => { if (s) setInput(s); }).catch(() => {});
-  }, [DRAFT_KEY]);
+    // Limpar imediatamente para não vazar draft de outra conversa
+    setInput('');
+    setSelectedImage(null);
+    AsyncStorage.getItem(DRAFT_KEY).then(s => { setInput(s ?? ''); }).catch(() => {});
+  }, [conversation.id]); // depende de conversation.id, não de DRAFT_KEY
 
   const saveDraftTimer = useRef<any>(null);
   const saveDraft = useCallback((text: string) => {
@@ -1268,8 +1271,33 @@ export default function ChatScreen({ route, navigation }: any) {
   // ── Double tap → ❤️ ───────────────────────────────────────────────────
   const handleDouble = useCallback((msg: Message) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-    applyReactionDirect(msg, '❤️');
-  }, []);
+    if (msg.id.startsWith('temp-')) return;
+    const myReaction = (msg.reactions ?? []).find(r => r.userId === user?.id);
+    const isToggleOff = myReaction?.emoji === '❤️';
+    setMessages(prev => prev.map(m => {
+      if (m.id !== msg.id) return m;
+      let next = (m.reactions ?? []).filter(r => r.userId !== user?.id);
+      if (!isToggleOff) next = [...next, { emoji: '❤️', userId: user?.id ?? '' }];
+      return { ...m, reactions: next.length > 0 ? next : null };
+    }));
+    api.patch(`/messages/${msg.id}/reaction`, { emoji: isToggleOff ? null : '❤️' })
+      .then(({ data }) => {
+        setMessages(prev => prev.map(m =>
+          m.id === msg.id ? { ...m, reactions: data.reactions ?? null } : m
+        ));
+      })
+      .catch(() => {
+        setMessages(prev => prev.map(m =>
+          m.id === msg.id ? { ...m, reactions: msg.reactions } : m
+        ));
+      });
+    socketService.getSocket()?.emit('message_reaction', {
+      conversationId: conversation.id,
+      messageId: msg.id,
+      emoji: isToggleOff ? null : '❤️',
+      senderId: user?.id,
+    });
+  }, [user?.id, conversation.id]);
 
   const closeSheet = useCallback(() => {
     setSheetOpen(false);
