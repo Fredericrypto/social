@@ -5,6 +5,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, Not } from 'typeorm';
 import { Conversation } from './entities/conversation.entity';
 import { Message, MessageReaction } from './entities/message.entity';
+import { Block } from '../blocks/entities/block.entity';
 
 @Injectable()
 export class MessagesService {
@@ -13,6 +14,8 @@ export class MessagesService {
     private readonly convRepo: Repository<Conversation>,
     @InjectRepository(Message)
     private readonly msgRepo: Repository<Message>,
+    @InjectRepository(Block)
+    private readonly blockRepo: Repository<Block>,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -80,6 +83,19 @@ export class MessagesService {
     if (!conv) throw new NotFoundException();
     if (conv.participantAId !== senderId && conv.participantBId !== senderId)
       throw new ForbiddenException();
+
+    // Hard block — verificar em ambas as direções
+    const recipientId = conv.participantAId === senderId
+      ? conv.participantBId
+      : conv.participantAId;
+
+    const blocked = await this.blockRepo.findOne({
+      where: [
+        { blockerId: recipientId, blockedId: senderId },
+        { blockerId: senderId,    blockedId: recipientId },
+      ],
+    });
+    if (blocked) throw new ForbiddenException('blocked');
 
     let message: Message;
     await this.dataSource.transaction(async manager => {
