@@ -900,7 +900,7 @@ const b = StyleSheet.create({
   reactionsRowMe:      { justifyContent: 'flex-end' },
   reactionsRowOther:   { justifyContent: 'flex-start' },
   reactionBadge:       { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: C.surfaceHi, borderWidth: 1, borderColor: C.border, borderRadius: 12, paddingHorizontal: 7, paddingVertical: 4 },
-  reactionBadgeActive: { backgroundColor: 'rgba(34,211,238,0.15)', borderColor: C.cyan },
+  reactionBadgeActive: { backgroundColor: 'rgba(148,163,184,0.15)', borderColor: C.primaryLt },
   reactionEmoji:       { fontSize: 13 },
   reactionCount:       { fontSize: 11, fontWeight: '600', color: C.textSec },
     // Texto

@@ -25,7 +25,7 @@ class SendMessageDto {
 class ReactDto {
   @IsOptional()
   @IsString()
-  reaction?: string | null; // null = remover reação
+  emoji?: string | null; // null = remover reação
 }
 
 @ApiTags('messages')
@@ -79,7 +79,7 @@ export class MessagesController {
     @Param('id') id: string,
     @Body() dto: ReactDto,
   ) {
-    return this.messagesService.reactToMessage(id, req.user.id, dto.reaction ?? null);
+    return this.messagesService.reactToMessage(id, req.user.id, dto.emoji ?? null);
   }
 
   /** Apagar mensagem individual */
