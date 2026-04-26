@@ -19,7 +19,7 @@ import { socketService } from "../../services/socket.service";
 import { PresenceStatus } from "../../services/presence.service";
 import Avatar from "../../components/ui/Avatar";
 
-const { width: SW } = Dimensions.get("window");
+const { width: SW, height: SH } = Dimensions.get("window");
 const DELETE_THRESHOLD = -75;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -40,7 +40,7 @@ function getPreview(conv: any, myId: string): string {
   return `${prefix}${msg.content}`;
 }
 
-// ─── Glow Slate Button (padrão do app) ───────────────────────────────────────
+// ─── Glow Slate Button ────────────────────────────────────────────────────────
 const GlowBtn = ({ onPress, icon, isDark }: { onPress: () => void; icon: string; isDark: boolean }) => (
   <TouchableOpacity
     activeOpacity={0.7}
@@ -85,12 +85,12 @@ const Skeleton = ({ color }: { color: string }) => {
 };
 
 // ─── SwipeableConvRow ─────────────────────────────────────────────────────────
-function SwipeableConvRow({ item, other, myId, theme, isDark, onPress, onDelete, presenceMap }: any) {
-  const translateX  = useRef(new Animated.Value(0)).current;
-  const swiped      = useRef(false);
-  const hasUnread   = (item.unreadCount ?? 0) > 0;
-  const preview     = getPreview(item, myId);
-  const timeStr     = item.lastMessageAt ? formatMsgTime(item.lastMessageAt) : "";
+function SwipeableConvRow({ item, other, myId, theme, isDark, onPress, onDelete, onLongPress, presenceMap }: any) {
+  const translateX = useRef(new Animated.Value(0)).current;
+  const swiped     = useRef(false);
+  const hasUnread  = (item.unreadCount ?? 0) > 0;
+  const preview    = getPreview(item, myId);
+  const timeStr    = item.lastMessageAt ? formatMsgTime(item.lastMessageAt) : "";
   const presence: PresenceStatus | null = other?.id ? (presenceMap[other.id] ?? null) : null;
 
   const panResponder = useRef(PanResponder.create({
@@ -119,16 +119,9 @@ function SwipeableConvRow({ item, other, myId, theme, isDark, onPress, onDelete,
     swiped.current = false;
   };
 
-  const handlePress = () => {
-    // Se está swipado, fechar em vez de abrir o chat
-    if (swiped.current) { closeSwipe(); return; }
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    onPress(item, other);
-  };
-
   return (
     <View style={{ overflow: "hidden" }}>
-      {/* Ação de deletar — atrás */}
+      {/* Ação de deletar */}
       <View style={cr.deleteSlot}>
         <TouchableOpacity
           style={cr.deleteBtn}
@@ -148,7 +141,16 @@ function SwipeableConvRow({ item, other, myId, theme, isDark, onPress, onDelete,
       <Animated.View style={{ transform: [{ translateX }] }} {...panResponder.panHandlers}>
         <Pressable
           style={[cr.row, { backgroundColor: theme.background, borderBottomColor: theme.border }]}
-          onPress={handlePress}
+          onPress={() => {
+            if (swiped.current) { closeSwipe(); return; }
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+            onPress(item, other);
+          }}
+          onLongPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+            onLongPress(item, other);
+          }}
+          delayLongPress={350}
           android_ripple={{ color: theme.surfaceHigh }}
         >
           <Avatar
@@ -157,31 +159,24 @@ function SwipeableConvRow({ item, other, myId, theme, isDark, onPress, onDelete,
             size={54}
             presenceStatus={presence}
           />
-
           <View style={cr.info}>
             <View style={cr.top}>
               <Text style={[cr.name, { color: theme.text }]} numberOfLines={1}>
                 {other?.displayName || other?.username || "Usuário"}
               </Text>
-              <Text style={[cr.time, { color: hasUnread ? theme.primary : theme.textSecondary }]}>
+              <Text style={[cr.time, { color: hasUnread ? "#06B6D4" : theme.textSecondary }]}>
                 {timeStr}
               </Text>
             </View>
             <View style={cr.bottom}>
               <Text
-                style={[
-                  cr.preview,
-                  {
-                    color:      hasUnread ? theme.text : theme.textSecondary,
-                    fontWeight: hasUnread ? "600"   : "400",
-                  },
-                ]}
+                style={[cr.preview, { color: hasUnread ? theme.text : theme.textSecondary, fontWeight: hasUnread ? "600" : "400" }]}
                 numberOfLines={1}
               >
                 {preview}
               </Text>
               {hasUnread && (
-                <View style={[cr.badge, { backgroundColor: '#06B6D4', shadowColor: '#06B6D4', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.7, shadowRadius: 6, elevation: 4 }]}>
+                <View style={cr.badge}>
                   <Text style={cr.badgeTxt}>{item.unreadCount > 99 ? "99+" : item.unreadCount}</Text>
                 </View>
               )}
@@ -204,11 +199,106 @@ const cr = StyleSheet.create({
   time:       { fontSize: 12, marginLeft: 8, flexShrink: 0 },
   bottom:     { flexDirection: "row", alignItems: "center", gap: 8 },
   preview:    { flex: 1, fontSize: 14, lineHeight: 20 },
-  badge:      { minWidth: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center", paddingHorizontal: 5 },
+  badge:      { minWidth: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center", paddingHorizontal: 5, backgroundColor: "#06B6D4", shadowColor: "#06B6D4", shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.8, shadowRadius: 6, elevation: 4 },
   badgeTxt:   { color: "#fff", fontSize: 11, fontWeight: "800" },
 });
 
-// ─── Modal de Confirmação de Delete ──────────────────────────────────────────
+// ─── Long Press Action Sheet ──────────────────────────────────────────────────
+function ConvActionSheet({ visible, conv, other, theme, onClose, onDelete, onMarkRead }: any) {
+  const translateY = useRef(new Animated.Value(400)).current;
+  const opacity    = useRef(new Animated.Value(0)).current;
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    if (visible) {
+      setMounted(true);
+      Animated.parallel([
+        Animated.timing(opacity,    { toValue: 1, duration: 200, useNativeDriver: true }),
+        Animated.spring(translateY, { toValue: 0, useNativeDriver: true, tension: 65, friction: 11 }),
+      ]).start();
+    } else {
+      Animated.parallel([
+        Animated.timing(opacity,    { toValue: 0, duration: 150, useNativeDriver: true }),
+        Animated.timing(translateY, { toValue: 400, duration: 150, useNativeDriver: true }),
+      ]).start(() => setMounted(false));
+    }
+  }, [visible]);
+
+  if (!mounted) return null;
+
+  const hasUnread = (conv?.unreadCount ?? 0) > 0;
+
+  const actions = [
+    hasUnread ? {
+      icon: "checkmark-done-outline",
+      label: "Marcar como lida",
+      color: "#06B6D4",
+      onPress: () => { onClose(); onMarkRead(conv); },
+    } : null,
+    {
+      icon: "trash-outline",
+      label: "Apagar conversa",
+      color: "#EF4444",
+      onPress: () => { onClose(); onDelete(conv); },
+    },
+  ].filter(Boolean) as any[];
+
+  return (
+    <View style={[StyleSheet.absoluteFill, { zIndex: 100 }]}>
+      <Animated.View style={[as.overlay, { opacity }]}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+      </Animated.View>
+      <Animated.View style={[as.sheet, { backgroundColor: theme.surface, borderColor: theme.border, transform: [{ translateY }] }]}>
+        <View style={[as.handle, { backgroundColor: theme.border }]} />
+        {/* Preview */}
+        <View style={as.previewRow}>
+          <Avatar uri={other?.avatarUrl} name={other?.displayName || other?.username} size={44} />
+          <View style={{ flex: 1 }}>
+            <Text style={[as.previewName, { color: theme.text }]} numberOfLines={1}>
+              {other?.displayName || other?.username}
+            </Text>
+            {conv?.lastMessage && (
+              <Text style={[as.previewMsg, { color: theme.textSecondary }]} numberOfLines={1}>
+                {getPreview(conv, "")}
+              </Text>
+            )}
+          </View>
+        </View>
+        <View style={[as.divider, { backgroundColor: theme.border }]} />
+        {/* Ações */}
+        {actions.map((action, i) => (
+          <TouchableOpacity key={i} style={as.action} onPress={action.onPress} activeOpacity={0.7}>
+            <View style={[as.actionIcon, { backgroundColor: action.color + "20" }]}>
+              <Ionicons name={action.icon as any} size={20} color={action.color} />
+            </View>
+            <Text style={[as.actionLabel, { color: action.color }]}>{action.label}</Text>
+          </TouchableOpacity>
+        ))}
+        {/* Cancelar */}
+        <TouchableOpacity style={[as.cancelBtn, { backgroundColor: theme.surfaceHigh }]} onPress={onClose} activeOpacity={0.7}>
+          <Text style={[as.cancelTxt, { color: theme.textSecondary }]}>Cancelar</Text>
+        </TouchableOpacity>
+      </Animated.View>
+    </View>
+  );
+}
+
+const as = StyleSheet.create({
+  overlay:     { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.5)" },
+  sheet:       { position: "absolute", bottom: 0, left: 0, right: 0, borderTopLeftRadius: 24, borderTopRightRadius: 24, borderTopWidth: 1, borderLeftWidth: 1, borderRightWidth: 1, paddingBottom: 40, paddingTop: 12, paddingHorizontal: 16 },
+  handle:      { width: 36, height: 4, borderRadius: 2, alignSelf: "center", marginBottom: 16 },
+  previewRow:  { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 16 },
+  previewName: { fontSize: 16, fontWeight: "700", letterSpacing: -0.3 },
+  previewMsg:  { fontSize: 13, marginTop: 2 },
+  divider:     { height: StyleSheet.hairlineWidth, marginBottom: 8 },
+  action:      { flexDirection: "row", alignItems: "center", gap: 14, paddingVertical: 14 },
+  actionIcon:  { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  actionLabel: { fontSize: 16, fontWeight: "600" },
+  cancelBtn:   { marginTop: 8, height: 50, borderRadius: 14, alignItems: "center", justifyContent: "center" },
+  cancelTxt:   { fontSize: 16, fontWeight: "600" },
+});
+
+// ─── Delete Modal ─────────────────────────────────────────────────────────────
 function DeleteModal({ visible, conv, other, onConfirm, onCancel, theme }: any) {
   if (!visible) return null;
   return (
@@ -223,21 +313,13 @@ function DeleteModal({ visible, conv, other, onConfirm, onCancel, theme }: any) 
           <Text style={{ fontWeight: "700", color: theme.text }}>
             {other?.displayName || other?.username}
           </Text>{" "}
-          apenas para você. As mensagens não poderão ser recuperadas.
+          apenas para você.
         </Text>
         <View style={dm.actions}>
-          <TouchableOpacity
-            style={[dm.btn, { borderColor: theme.border, backgroundColor: theme.surface }]}
-            onPress={onCancel}
-            activeOpacity={0.7}
-          >
+          <TouchableOpacity style={[dm.btn, { borderColor: theme.border, backgroundColor: theme.surface }]} onPress={onCancel} activeOpacity={0.7}>
             <Text style={[dm.btnTxt, { color: theme.textSecondary }]}>Cancelar</Text>
           </TouchableOpacity>
-          <TouchableOpacity
-            style={[dm.btn, { backgroundColor: "#EF4444", borderColor: "#EF4444" }]}
-            onPress={onConfirm}
-            activeOpacity={0.7}
-          >
+          <TouchableOpacity style={[dm.btn, { backgroundColor: "#EF4444", borderColor: "#EF4444" }]} onPress={onConfirm} activeOpacity={0.7}>
             <Text style={[dm.btnTxt, { color: "#fff" }]}>Apagar</Text>
           </TouchableOpacity>
         </View>
@@ -263,34 +345,30 @@ export default function MessagesScreen({ navigation }: any) {
   const { user }          = useAuthStore();
   const insets            = useSafeAreaInsets();
 
-  const [conversations, setConversations] = useState<any[]>([]);
-  const [filtered,      setFiltered]      = useState<any[]>([]);
-  const [loading,       setLoading]       = useState(true);
-  const [refreshing,    setRefreshing]    = useState(false);
-  const [presenceMap,   setPresenceMap]   = useState<Record<string, PresenceStatus>>({});
-  const [search,        setSearch]        = useState("");
-  const [searching,     setSearching]     = useState(false);
+  const [conversations,    setConversations]    = useState<any[]>([]);
+  const [filtered,         setFiltered]         = useState<any[]>([]);
+  const [loading,          setLoading]          = useState(true);
+  const [refreshing,       setRefreshing]        = useState(false);
+  const [presenceMap,      setPresenceMap]       = useState<Record<string, PresenceStatus>>({});
+  const [search,           setSearch]            = useState("");
+  const [searching,        setSearching]         = useState(false);
+  const [deleteTarget,     setDeleteTarget]      = useState<any>(null);
+  const [sheetConv,        setSheetConv]         = useState<any>(null);
+  const [sheetOther,       setSheetOther]        = useState<any>(null);
+  const [sheetVisible,     setSheetVisible]      = useState(false);
 
-  // Modal delete
-  const [deleteTarget, setDeleteTarget] = useState<any>(null);
-
-  // ── Carregar conversas ──────────────────────────────────────────────────
   const load = useCallback(async () => {
     try {
       const { data } = await api.get("/messages/conversations");
       const convs: any[] = Array.isArray(data) ? data : [];
       setConversations(convs);
       setFiltered(convs);
-
-      const otherIds = convs
-        .map((c: any) => c.participantAId === user?.id ? c.participantB?.id : c.participantA?.id)
-        .filter(Boolean);
-
+      const otherIds = convs.map((c: any) =>
+        c.participantAId === user?.id ? c.participantB?.id : c.participantA?.id
+      ).filter(Boolean);
       if (otherIds.length > 0) {
         try {
-          const { data: presences } = await api.get("/users/presence", {
-            params: { ids: otherIds.join(",") },
-          });
+          const { data: presences } = await api.get("/users/presence", { params: { ids: otherIds.join(",") } });
           if (Array.isArray(presences)) {
             const map: Record<string, PresenceStatus> = {};
             presences.forEach((p: any) => { if (p.userId) map[p.userId] = p.status; });
@@ -299,127 +377,90 @@ export default function MessagesScreen({ navigation }: any) {
         } catch {}
       }
     } catch {
-      setConversations([]);
-      setFiltered([]);
+      setConversations([]); setFiltered([]);
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      setLoading(false); setRefreshing(false);
     }
   }, [user?.id]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  // ── Socket — tempo real ────────────────────────────────────────────────
   useEffect(() => {
     const socket = socketService.connect();
     if (!socket) return;
-
-    // Presença
-    const onPresence = ({ userId, status }: { userId: string; status: PresenceStatus }) => {
+    const onPresence = ({ userId, status }: any) =>
       setPresenceMap(prev => ({ ...prev, [userId]: status }));
-    };
     socket.on("presence:update", onPresence);
-
-    // Nova mensagem → subir conversa para o topo e atualizar preview
     const onNewMsg = (msg: any) => {
       setConversations(prev => {
         const idx = prev.findIndex(c => c.id === msg.conversationId);
         if (idx < 0) { load(); return prev; }
         const conv = { ...prev[idx], lastMessage: msg, lastMessageAt: msg.createdAt };
-        // Incrementar unread se a mensagem não é minha
-        if (msg.senderId !== user?.id) {
-          conv.unreadCount = (conv.unreadCount ?? 0) + 1;
-        }
-        const next = [conv, ...prev.filter((_, i) => i !== idx)];
-        return next;
+        if (msg.senderId !== user?.id) conv.unreadCount = (conv.unreadCount ?? 0) + 1;
+        return [conv, ...prev.filter((_, i) => i !== idx)];
       });
     };
     socketService.onNewMessage(onNewMsg);
-
-    // Mensagens lidas → zerar badge
-    const onRead = ({ conversationId }: { conversationId: string }) => {
-      setConversations(prev =>
-        prev.map(c => c.id === conversationId ? { ...c, unreadCount: 0 } : c)
-      );
-    };
+    const onRead = ({ conversationId }: any) =>
+      setConversations(prev => prev.map(c => c.id === conversationId ? { ...c, unreadCount: 0 } : c));
     socket.on("messages_read", onRead);
-
-    return () => {
-      socket.off("presence:update", onPresence);
-      socket.off("messages_read", onRead);
-      // onNewMessage cleanup não tem off direto no service — recarregar ao focus resolve
-    };
+    return () => { socket.off("presence:update", onPresence); socket.off("messages_read", onRead); };
   }, [load, user?.id]);
 
-  // ── Sincronizar filtered com conversations ─────────────────────────────
   useEffect(() => {
-    if (!search.trim()) {
-      setFiltered(conversations);
-    } else {
-      const q = search.toLowerCase();
-      setFiltered(conversations.filter(c => {
-        const other = c.participantAId === user?.id ? c.participantB : c.participantA;
-        return (
-          other?.displayName?.toLowerCase().includes(q) ||
-          other?.username?.toLowerCase().includes(q)
-        );
-      }));
-    }
+    if (!search.trim()) { setFiltered(conversations); return; }
+    const q = search.toLowerCase();
+    setFiltered(conversations.filter(c => {
+      const o = c.participantAId === user?.id ? c.participantB : c.participantA;
+      return o?.displayName?.toLowerCase().includes(q) || o?.username?.toLowerCase().includes(q);
+    }));
   }, [search, conversations, user?.id]);
 
-  // ── Helpers ────────────────────────────────────────────────────────────
   const getOther = (conv: any) =>
     conv.participantAId === user?.id ? conv.participantB : conv.participantA;
 
   const handleOpen = (conv: any, other: any) => {
-    // Zerar badge otimisticamente
-    setConversations(prev =>
-      prev.map(c => c.id === conv.id ? { ...c, unreadCount: 0 } : c)
-    );
-    // Marcar como lido no backend
+    setConversations(prev => prev.map(c => c.id === conv.id ? { ...c, unreadCount: 0 } : c));
     api.post(`/messages/conversations/${conv.id}/read`).catch(() => {});
     navigation.navigate("Chat", { conversation: conv, other });
   };
 
-  const handleDeleteRequest = (conv: any) => {
-    setDeleteTarget(conv);
+  const handleLongPress = (conv: any, other: any) => {
+    setSheetConv(conv); setSheetOther(other); setSheetVisible(true);
+  };
+
+  const handleMarkRead = (conv: any) => {
+    setConversations(prev => prev.map(c => c.id === conv.id ? { ...c, unreadCount: 0 } : c));
+    api.post(`/messages/conversations/${conv.id}/read`).catch(() => {});
   };
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
     const conv = deleteTarget;
     setDeleteTarget(null);
-    // Otimista
     setConversations(prev => prev.filter(c => c.id !== conv.id));
-    try {
-      await api.delete(`/messages/conversations/${conv.id}/clear`);
-    } catch {
-      load(); // reverter se falhar
-    }
+    try { await api.delete(`/messages/conversations/${conv.id}/clear`); }
+    catch { load(); }
   };
 
-  const handleBack = () => {
-    if (navigation?.canGoBack?.()) navigation.goBack();
-    else navigation?.navigate?.("Tabs", { screen: "Profile" });
-  };
-
-  const toggleSearch = () => {
-    setSearching(s => !s);
-    setSearch("");
+  const closeSheet = () => {
+    setSheetVisible(false);
+    setTimeout(() => { setSheetConv(null); setSheetOther(null); }, 300);
   };
 
   return (
     <View style={[s.root, { backgroundColor: theme.background }]}>
       <StatusBar barStyle={isDark ? "light-content" : "dark-content"} translucent backgroundColor="transparent" />
 
-      {/* Header */}
       <View style={[s.header, { paddingTop: insets.top + 12, borderBottomColor: theme.border, backgroundColor: theme.background }]}>
-        <GlowBtn icon="chevron-back" isDark={isDark} onPress={handleBack} />
+        <GlowBtn icon="chevron-back" isDark={isDark} onPress={() => {
+          if (navigation?.canGoBack?.()) navigation.goBack();
+          else navigation?.navigate?.("Tabs", { screen: "Profile" });
+        }} />
         <Text style={[s.title, { color: theme.text }]}>Mensagens</Text>
-        <GlowBtn icon={searching ? "close" : "search"} isDark={isDark} onPress={toggleSearch} />
+        <GlowBtn icon={searching ? "close" : "search"} isDark={isDark} onPress={() => { setSearching(v => !v); setSearch(""); }} />
       </View>
 
-      {/* Barra de busca */}
       {searching && (
         <View style={[s.searchBar, { backgroundColor: theme.surface, borderColor: theme.border }]}>
           <Ionicons name="search" size={16} color={theme.textSecondary} />
@@ -441,30 +482,22 @@ export default function MessagesScreen({ navigation }: any) {
 
       {loading ? (
         <View style={{ paddingTop: 8 }}>
-          {[1, 2, 3, 4, 5].map(i => <Skeleton key={i} color={theme.surfaceHigh} />)}
+          {[1,2,3,4,5].map(i => <Skeleton key={i} color={theme.surfaceHigh} />)}
         </View>
       ) : (
         <FlatList
           data={filtered}
           keyExtractor={item => item.id}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={() => { setRefreshing(true); load(); }}
-              tintColor={theme.primary}
-            />
-          }
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={theme.primary} />}
           renderItem={({ item }) => {
             const other = getOther(item);
             return (
               <SwipeableConvRow
-                item={item}
-                other={other}
-                myId={user?.id}
-                theme={theme}
-                isDark={isDark}
+                item={item} other={other} myId={user?.id}
+                theme={theme} isDark={isDark}
                 onPress={handleOpen}
-                onDelete={handleDeleteRequest}
+                onDelete={setDeleteTarget}
+                onLongPress={handleLongPress}
                 presenceMap={presenceMap}
               />
             );
@@ -474,9 +507,7 @@ export default function MessagesScreen({ navigation }: any) {
               <View style={[s.emptyIcon, { backgroundColor: theme.surface }]}>
                 <Ionicons name="paper-plane-outline" size={32} color={theme.primaryLight} />
               </View>
-              <Text style={[s.emptyTitle, { color: theme.text }]}>
-                {search ? "Nenhum resultado" : "Sem mensagens"}
-              </Text>
+              <Text style={[s.emptyTitle, { color: theme.text }]}>{search ? "Nenhum resultado" : "Sem mensagens"}</Text>
               <Text style={[s.emptySub, { color: theme.textSecondary }]}>
                 {search ? `Nada encontrado para "${search}"` : "Inicie uma conversa pelo perfil de alguém"}
               </Text>
@@ -487,13 +518,16 @@ export default function MessagesScreen({ navigation }: any) {
         />
       )}
 
-      {/* Modal de confirmação de delete */}
+      <ConvActionSheet
+        visible={sheetVisible} conv={sheetConv} other={sheetOther}
+        theme={theme} onClose={closeSheet}
+        onDelete={setDeleteTarget} onMarkRead={handleMarkRead}
+      />
+
       <DeleteModal
-        visible={!!deleteTarget}
-        conv={deleteTarget}
+        visible={!!deleteTarget} conv={deleteTarget}
         other={deleteTarget ? getOther(deleteTarget) : null}
-        onConfirm={confirmDelete}
-        onCancel={() => setDeleteTarget(null)}
+        onConfirm={confirmDelete} onCancel={() => setDeleteTarget(null)}
         theme={theme}
       />
     </View>
@@ -501,15 +535,15 @@ export default function MessagesScreen({ navigation }: any) {
 }
 
 const s = StyleSheet.create({
-  root:        { flex: 1 },
-  header:      { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 16, paddingBottom: 14, borderBottomWidth: StyleSheet.hairlineWidth },
-  title:       { fontSize: 19, fontWeight: "800", letterSpacing: -0.4 },
-  glowWrap:    { width: 36, height: 36, borderRadius: 10, overflow: "hidden" },
-  glowInner:   { margin: 1.5, borderRadius: 8.5, flex: 1, alignItems: "center", justifyContent: "center" },
-  searchBar:   { flexDirection: "row", alignItems: "center", gap: 10, marginHorizontal: 16, marginVertical: 10, paddingHorizontal: 14, height: 42, borderRadius: 12, borderWidth: 1 },
-  searchInput: { flex: 1, fontSize: 15, padding: 0 },
-  empty:       { flex: 1, alignItems: "center", justifyContent: "center", gap: 14, paddingBottom: 80 },
-  emptyIcon:   { width: 76, height: 76, borderRadius: 26, alignItems: "center", justifyContent: "center" },
-  emptyTitle:  { fontSize: 19, fontWeight: "800", letterSpacing: -0.3 },
-  emptySub:    { fontSize: 15, textAlign: "center", lineHeight: 22, paddingHorizontal: 32, opacity: 0.7 },
+  root:       { flex: 1 },
+  header:     { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 16, paddingBottom: 14, borderBottomWidth: StyleSheet.hairlineWidth },
+  title:      { fontSize: 19, fontWeight: "800", letterSpacing: -0.4 },
+  glowWrap:   { width: 36, height: 36, borderRadius: 10, overflow: "hidden" },
+  glowInner:  { margin: 1.5, borderRadius: 8.5, flex: 1, alignItems: "center", justifyContent: "center" },
+  searchBar:  { flexDirection: "row", alignItems: "center", gap: 10, marginHorizontal: 16, marginVertical: 10, paddingHorizontal: 14, height: 42, borderRadius: 12, borderWidth: 1 },
+  searchInput:{ flex: 1, fontSize: 15, padding: 0 },
+  empty:      { flex: 1, alignItems: "center", justifyContent: "center", gap: 14, paddingBottom: 80 },
+  emptyIcon:  { width: 76, height: 76, borderRadius: 26, alignItems: "center", justifyContent: "center" },
+  emptyTitle: { fontSize: 19, fontWeight: "800", letterSpacing: -0.3 },
+  emptySub:   { fontSize: 15, textAlign: "center", lineHeight: 22, paddingHorizontal: 32, opacity: 0.7 },
 });
