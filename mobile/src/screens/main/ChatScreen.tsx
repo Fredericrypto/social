@@ -937,6 +937,7 @@ export default function ChatScreen({ route, navigation }: any) {
   const [reportOpen,     setReportOpen]     = useState(false);
   const [isBlocked,      setIsBlocked]      = useState(false);
   const [blockedIds,     setBlockedIds]     = useState<Set<string>>(new Set());
+  const blockedIdsRef = useRef<Set<string>>(new Set());
   const [toastMsg,       setToastMsg]       = useState<{ text: string; type: 'info'|'success'|'error' } | null>(null);
   const [firstUnreadIdx, setFirstUnreadIdx] = useState<number>(-1);
   const [viewerData,     setViewerData]     = useState<ViewerData | null>(null);
@@ -950,6 +951,8 @@ export default function ChatScreen({ route, navigation }: any) {
   const hasContent   = input.trim().length > 0 || selectedImage !== null;
 
   const DRAFT_KEY        = `@venus:draft:${conversation.id}`;
+  // Manter ref sincronizada para uso em closures do socket
+  useEffect(() => { blockedIdsRef.current = blockedIds; }, [blockedIds]);
   const BLOCKED_MSGS_KEY      = `@venus:blocked_msgs:${conversation.id}`;
   const BLOCKED_REACTIONS_KEY = `@venus:blocked_reactions:${conversation.id}`;
   const LAST_SEEN_KEY = `@venus:last_seen:${conversation.id}`;
@@ -1095,8 +1098,8 @@ export default function ChatScreen({ route, navigation }: any) {
     socket.emit('join_conversation', { conversationId: conversation.id });
 
     const unsubMsg = socketService.onNewMessage((msg: any) => {
-      // Ignorar mensagens de usuários que bloqueámos
-      if (blockedIds.has(msg.senderId)) return;
+      // Ignorar mensagens de usuários que bloqueámos (usa ref para valor sempre atual)
+      if (blockedIdsRef.current.has(msg.senderId)) return;
       setMessages(prev => [...prev, {
         ...msg, isRead: false,
         deliveredAt: msg.deliveredAt ?? null,
@@ -1128,8 +1131,8 @@ export default function ChatScreen({ route, navigation }: any) {
     socket.on('message_reaction', ({ messageId, emoji, senderId: reactSenderId }: {
       messageId: string; emoji: string | null; senderId?: string;
     }) => {
-      // Ignorar reações de usuários bloqueados
-      if (reactSenderId && blockedIds.has(reactSenderId)) return;
+      // Ignorar reações de usuários bloqueados (usa ref para valor sempre atual)
+      if (reactSenderId && blockedIdsRef.current.has(reactSenderId)) return;
       setMessages(prev => prev.map(m => {
         if (m.id !== messageId) return m;
         let next = (m.reactions ?? []).filter(r => r.userId !== reactSenderId);
