@@ -73,12 +73,36 @@ const { width: SW, height: SH } = Dimensions.get('window');
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 type CheckState = 'sent' | 'delivered' | 'read';
 
+interface MessageReaction {
+  emoji:  string;
+  userId: string;
+}
+
+// Agrupa reações por emoji com contagem e lista de users
+interface ReactionGroup {
+  emoji:   string;
+  count:   number;
+  userIds: string[];
+}
+
+function groupReactions(reactions: MessageReaction[] | null | undefined): ReactionGroup[] {
+  if (!reactions?.length) return [];
+  const map = new Map<string, ReactionGroup>();
+  for (const r of reactions) {
+    const g = map.get(r.emoji) ?? { emoji: r.emoji, count: 0, userIds: [] };
+    g.count++;
+    g.userIds.push(r.userId);
+    map.set(r.emoji, g);
+  }
+  return Array.from(map.values());
+}
+
 interface Message {
   id:          string;
   senderId:    string;
   content:     string;
   imageUrl?:   string | null;
-  reaction?:   string | null;
+  reactions?:  MessageReaction[] | null;
   createdAt:   string;
   deliveredAt: string | null;
   isRead:      boolean;
@@ -661,24 +685,33 @@ function TypingBubble() {
 // ═════════════════════════════════════════════════════════════════════════════
 //  BALÃO — gestos corretos, moldura limpa
 // ═════════════════════════════════════════════════════════════════════════════
-function Bubble({ msg, isMe, onLong, onDouble, highlighted, onImagePress }: {
+function Bubble({ msg, isMe, onLong, onDouble, highlighted, onImagePress, onReact, user }: {
   msg: Message; isMe: boolean; highlighted: boolean;
   onLong:       (m: Message) => void;
   onDouble:     (m: Message) => void;
   onImagePress: (d: ViewerData) => void;
+  onReact:      (m: Message, emoji: string) => void;
+  user:         any;
 }) {
   const lastTap   = useRef(0);
   const scale     = useRef(new RNAnimated.Value(1)).current;
-  const bgOpacity = useRef(new RNAnimated.Value(highlighted ? 1 : 0)).current;
+  const bgOpacity = useRef(new RNAnimated.Value(0)).current;
   const check     = getCheckState(msg);
 
-  // Fade out do highlight após 5s
+  // Fade out do highlight — inicia em 1 se highlighted e faz fade após 5s
   useEffect(() => {
-    if (!highlighted) return;
-    const t = setTimeout(() => {
-      RNAnimated.timing(bgOpacity, { toValue: 0, duration: 1200, useNativeDriver: false }).start();
-    }, 5000);
-    return () => clearTimeout(t);
+    if (highlighted) {
+      // Garantir que começa visível (pode ter sido resetado)
+      bgOpacity.setValue(1);
+      const t = setTimeout(() => {
+        RNAnimated.timing(bgOpacity, {
+          toValue: 0, duration: 1200, useNativeDriver: false,
+        }).start();
+      }, 5000);
+      return () => clearTimeout(t);
+    } else {
+      bgOpacity.setValue(0);
+    }
   }, [highlighted, bgOpacity]);
 
   // Double-tap para ❤️
@@ -707,60 +740,76 @@ function Bubble({ msg, isMe, onLong, onDouble, highlighted, onImagePress }: {
     </RNAnimated.View>
   );
 
-  // ── Bolha de imagem ────────────────────────────────────────────────────
+  // ── Bolha de imagem — WhatsApp style ──────────────────────────────────────
+  // Imagem DENTRO do balão. Sem padding. Texto + hora sobre a imagem (overlay).
   if (msg.imageUrl) {
-    const hasCaption = !!msg.content;
     const viewerData: ViewerData = { uri: msg.imageUrl, msgId: msg.id, isMine: isMe };
+    const hasCaption = !!msg.content;
 
     return (
       <RNAnimated.View style={[b.row, isMe ? b.me : b.other, { backgroundColor: bgColor }]}>
         <RNAnimated.View style={[b.wrap, { transform: [{ scale }] }]}>
-          {hasCaption ? (
-            // COM legenda — moldura completa arredondada, área de texto embaixo
-            <TouchableOpacity
-              activeOpacity={0.92}
-              delayLongPress={360}
-              onPress={() => onImagePress(viewerData)}
-              onLongPress={() => onLong(msg)}
-              style={[b.imgCard, isMe ? b.imgCardMe : b.imgCardOther, { width: imgW }]}
-            >
+
+          {/* Balão — mesmo border radius do bubble de texto */}
+          <TouchableOpacity
+            activeOpacity={0.95}
+            delayLongPress={360}
+            onPress={() => {
+              const now = Date.now();
+              const diff = now - lastTap.current;
+              lastTap.current = now;
+              if (diff < 300) {
+                onDouble(msg);
+              } else {
+                setTimeout(() => onImagePress(viewerData), 180);
+              }
+            }}
+            onLongPress={() => onLong(msg)}
+            style={[b.imgBalloon, isMe ? b.imgBalloonMe : b.imgBalloonOther]}
+          >
+            {/* Padding fino em volta da imagem */}
+            <View style={b.imgPadWrap}>
               <Image
                 source={{ uri: msg.imageUrl }}
-                style={[b.imgCardPhoto, { width: imgW, height: imgH }]}
+                style={b.imgFill}
                 resizeMode="cover"
               />
-              {/* Separador sutil */}
-              <View style={b.imgCardDivider} />
-              {/* Área de legenda */}
-              <View style={b.captionArea}>
-                <Text style={b.captionTxt}>{msg.content}</Text>
-                <View style={b.captionMeta}>
-                  <Text style={b.captionTime}>{fmtTime(msg.createdAt)}</Text>
-                  {isMe && <CheckIcon state={check} />}
-                </View>
+            </View>
+
+            {/* Área inferior: legenda + hora + check */}
+            <View style={hasCaption ? b.imgFooterCaption : b.imgFooterNoCaption}>
+              {hasCaption && (
+                <Text style={b.imgCaptionText}>{msg.content}</Text>
+              )}
+              <View style={b.imgMetaRow}>
+                <Text style={b.imgMetaTime}>{fmtTime(msg.createdAt)}</Text>
+                {isMe && <CheckIcon state={check} />}
               </View>
-            </TouchableOpacity>
-          ) : (
-            // SEM legenda — imagem com badge hora
-            <TouchableOpacity
-              activeOpacity={0.92}
-              delayLongPress={360}
-              onPress={() => { handleTap(); if (Date.now() - lastTap.current > 350) onImagePress(viewerData); }}
-              onLongPress={() => onLong(msg)}
-              style={[b.imgBare, isMe ? b.imgBareMe : b.imgBareOther, { width: imgW, height: imgH }]}
-            >
-              <Image source={{ uri: msg.imageUrl }} style={StyleSheet.absoluteFill} resizeMode="cover" />
-              <View style={b.imgTimeBadge}>
-                <Text style={b.imgTimeTxt}>{fmtTime(msg.createdAt)}</Text>
-                {isMe && <CheckIcon state={check} light />}
-              </View>
-            </TouchableOpacity>
-          )}
-          {msg.reaction && (
-            <View style={[b.badge, isMe ? b.badgeMe : b.badgeOther]}>
-              <Text style={{ fontSize: 13 }}>{msg.reaction}</Text>
+            </View>
+          </TouchableOpacity>
+
+          {/* Badges de reação — estilo Telegram */}
+          {groupReactions(msg.reactions).length > 0 && (
+            <View style={[b.reactionsRow, isMe ? b.reactionsRowMe : b.reactionsRowOther]}>
+              {groupReactions(msg.reactions).map(g => (
+                <TouchableOpacity
+                  key={g.emoji}
+                  style={[
+                    b.reactionBadge,
+                    g.userIds.includes(user?.id ?? '') && b.reactionBadgeActive,
+                  ]}
+                  onPress={() => onReact(msg, g.emoji)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={b.reactionEmoji}>{g.emoji}</Text>
+                  {g.count > 1 && (
+                    <Text style={b.reactionCount}>{g.count}</Text>
+                  )}
+                </TouchableOpacity>
+              ))}
             </View>
           )}
+
         </RNAnimated.View>
       </RNAnimated.View>
     );
@@ -787,9 +836,24 @@ function Bubble({ msg, isMe, onLong, onDouble, highlighted, onImagePress }: {
             }
           </TouchableOpacity>
         </RNAnimated.View>
-        {msg.reaction && (
-          <View style={[b.badge, isMe ? b.badgeMe : b.badgeOther]}>
-            <Text style={{ fontSize: 13 }}>{msg.reaction}</Text>
+        {groupReactions(msg.reactions).length > 0 && (
+          <View style={[b.reactionsRow, isMe ? b.reactionsRowMe : b.reactionsRowOther]}>
+            {groupReactions(msg.reactions).map(g => (
+              <TouchableOpacity
+                key={g.emoji}
+                style={[
+                  b.reactionBadge,
+                  g.userIds.includes(user?.id ?? '') && b.reactionBadgeActive,
+                ]}
+                onPress={() => onReact(msg, g.emoji)}
+                activeOpacity={0.7}
+              >
+                <Text style={b.reactionEmoji}>{g.emoji}</Text>
+                {g.count > 1 && (
+                  <Text style={b.reactionCount}>{g.count}</Text>
+                )}
+              </TouchableOpacity>
+            ))}
           </View>
         )}
         <View style={[b.meta, isMe ? b.metaMe : b.metaOther]}>
@@ -810,29 +874,41 @@ const b = StyleSheet.create({
   bubbleMe:      { borderBottomRightRadius: 6 },
   bubbleOther:   { backgroundColor: C.surfaceHi, borderWidth: 1, borderColor: C.border, borderBottomLeftRadius: 6 },
   // Imagem SEM legenda
-  imgBare:       { borderRadius: 16, overflow: 'hidden' },
-  imgBareMe:     { borderBottomRightRadius: 6 },
-  imgBareOther:  { borderBottomLeftRadius: 6 },
-  imgTimeBadge:  { position: 'absolute', bottom: 6, right: 8, flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: 'rgba(0,0,0,0.50)', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 8 },
-  imgTimeTxt:    { fontSize: 10, color: 'rgba(255,255,255,0.9)' },
-  // Imagem COM legenda — moldura completa
-  imgCard:       { borderRadius: 16, overflow: 'hidden', backgroundColor: C.bubble1, borderWidth: StyleSheet.hairlineWidth, borderColor: C.borderHi },
-  imgCardMe:     { borderBottomRightRadius: 6 },
-  imgCardOther:  { borderBottomLeftRadius: 6 },
-  imgCardPhoto:  { borderTopLeftRadius: 14, borderTopRightRadius: 14 },
-  imgCardDivider:{ height: StyleSheet.hairlineWidth, backgroundColor: C.border },
-  captionArea:   { paddingHorizontal: 12, paddingTop: 7, paddingBottom: 8 },
-  captionTxt:    { fontSize: 14, color: C.text, lineHeight: 19, marginBottom: 4 },
-  captionMeta:   { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4 },
-  captionTime:   { fontSize: 10, color: C.textTer },
-  // Texto
+  // ── Image bubble styles — WhatsApp ──────────────────────────────────────
+  // Balão de imagem — padding fino igual WhatsApp
+  imgBalloon:        { borderRadius: 18, maxWidth: SW * 0.72 },
+  imgBalloonMe:      { borderBottomRightRadius: 4, backgroundColor: C.bubble1 },
+  imgBalloonOther:   { borderBottomLeftRadius: 4, backgroundColor: C.surfaceHi, borderWidth: StyleSheet.hairlineWidth, borderColor: C.border },
+  // Padding fino de 3px em volta da imagem
+  imgPadWrap:        { margin: 3, borderRadius: 14, overflow: 'hidden' },
+  imgFill:           { width: SW * 0.72 - 6, height: (SW * 0.72 - 6) * 1.05 },
+  // Área inferior: sem legenda = padding fino, com legenda = padding maior
+  imgFooterNoCaption:{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', paddingHorizontal: 8, paddingVertical: 5, gap: 3 },
+  imgFooterCaption:  { paddingHorizontal: 10, paddingTop: 7, paddingBottom: 8 },
+  imgCaptionText:    { fontSize: 14, color: C.text, lineHeight: 19, marginBottom: 5 },
+  imgMetaRow:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 3 },
+  imgMetaTime:       { fontSize: 10, color: C.textTer },
+  imgOverlay:      { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 10, paddingBottom: 7, paddingTop: 20, background: 'transparent' },
+  imgOverlayTall:  { paddingTop: 40 },
+  imgOverlayShort: { paddingTop: 20 },
+  imgCaptionText:  { fontSize: 14, color: '#fff', lineHeight: 19, marginBottom: 3, textShadowColor: 'rgba(0,0,0,0.6)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 },
+  imgMetaRow:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 3 },
+  imgMetaTime:     { fontSize: 10, color: 'rgba(255,255,255,0.88)', textShadowColor: 'rgba(0,0,0,0.5)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 },
+  // Reação — badge colado na borda inferior do balão
+  // Reactions — estilo Telegram
+  reactionsRow:        { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 },
+  reactionsRowMe:      { justifyContent: 'flex-end' },
+  reactionsRowOther:   { justifyContent: 'flex-start' },
+  reactionBadge:       { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: C.surfaceHi, borderWidth: 1, borderColor: C.border, borderRadius: 12, paddingHorizontal: 7, paddingVertical: 4 },
+  reactionBadgeActive: { backgroundColor: 'rgba(34,211,238,0.15)', borderColor: C.cyan },
+  reactionEmoji:       { fontSize: 13 },
+  reactionCount:       { fontSize: 11, fontWeight: '600', color: C.textSec },
+    // Texto
   deleted:       { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 18, borderWidth: 1, borderColor: C.border, borderStyle: 'dashed' },
   deletedTxt:    { fontSize: 13, fontStyle: 'italic', color: C.textTer },
   txtMe:         { color: C.text, fontSize: 15, lineHeight: 21 },
   txtOther:      { color: C.text, fontSize: 15, lineHeight: 21 },
-  badge:         { position: 'absolute', bottom: 16, width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg, borderWidth: 1, borderColor: C.borderHi },
-  badgeMe:       { right: -6 },
-  badgeOther:    { left: -6 },
+  // badge movido para reactionBadge
   meta:          { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 1 },
   metaMe:        { justifyContent: 'flex-end' },
   metaOther:     { justifyContent: 'flex-start' },
@@ -860,6 +936,7 @@ export default function ChatScreen({ route, navigation }: any) {
   const [menuAnchorY,    setMenuAnchorY]    = useState(0);
   const [reportOpen,     setReportOpen]     = useState(false);
   const [isBlocked,      setIsBlocked]      = useState(false);
+  const [blockedIds,     setBlockedIds]     = useState<Set<string>>(new Set());
   const [toastMsg,       setToastMsg]       = useState<{ text: string; type: 'info'|'success'|'error' } | null>(null);
   const [firstUnreadIdx, setFirstUnreadIdx] = useState<number>(-1);
   const [viewerData,     setViewerData]     = useState<ViewerData | null>(null);
@@ -910,7 +987,10 @@ export default function ChatScreen({ route, navigation }: any) {
     if (!other?.id) return;
     api.get('/blocks')
       .then(({ data }) => {
-        setIsBlocked(Array.isArray(data) && data.some((bl: any) => bl.blockedId === other.id));
+        if (!Array.isArray(data)) return;
+        setIsBlocked(data.some((bl: any) => bl.blockedId === other.id));
+        // Guardar todos os IDs bloqueados para filtrar mensagens no socket
+        setBlockedIds(new Set(data.map((bl: any) => bl.blockedId)));
       })
       .catch(() => {});
   }, [other?.id]);
@@ -924,7 +1004,7 @@ export default function ChatScreen({ route, navigation }: any) {
         isRead:      m.isRead      ?? false,
         deliveredAt: m.deliveredAt ?? null,
         imageUrl:    m.imageUrl    ?? null,
-        reaction:    m.reaction    ?? null,
+        reactions:   Array.isArray(m.reactions) ? m.reactions : (m.reaction ? [{ emoji: m.reaction, userId: m.senderId }] : null),
       }));
       setMessages(msgs);
 
@@ -953,13 +1033,8 @@ export default function ChatScreen({ route, navigation }: any) {
         AsyncStorage.setItem(LAST_SEEN_KEY, msgs[msgs.length - 1].id).catch(() => {});
       }
 
-      // SCROLL SEMPRE ao fim
-      setTimeout(() => {
-        if (!scrolledOnce.current) {
-          scrolledOnce.current = true;
-          flatRef.current?.scrollToEnd({ animated: false });
-        }
-      }, 150);
+      // Flag para onContentSizeChange fazer o scroll inicial
+      scrolledOnce.current = false;
     } catch {}
     finally { setLoading(false); }
   }, [conversation.id, user?.id, LAST_SEEN_KEY]);
@@ -981,11 +1056,13 @@ export default function ChatScreen({ route, navigation }: any) {
     socket.emit('join_conversation', { conversationId: conversation.id });
 
     const unsubMsg = socketService.onNewMessage((msg: any) => {
+      // Ignorar mensagens de usuários que bloqueámos
+      if (blockedIds.has(msg.senderId)) return;
       setMessages(prev => [...prev, {
         ...msg, isRead: false,
         deliveredAt: msg.deliveredAt ?? null,
         imageUrl:    msg.imageUrl    ?? null,
-        reaction:    msg.reaction    ?? null,
+        reactions:   Array.isArray(msg.reactions) ? msg.reactions : null,
       }]);
       // Atualiza last_seen para novas mensagens recebidas
       AsyncStorage.setItem(LAST_SEEN_KEY, msg.id).catch(() => {});
@@ -1009,8 +1086,17 @@ export default function ChatScreen({ route, navigation }: any) {
       ));
     });
 
-    socket.on('message_reaction', ({ messageId, reaction }: { messageId: string; reaction: string | null }) => {
-      setMessages(prev => prev.map(m => m.id === messageId ? { ...m, reaction } : m));
+    socket.on('message_reaction', ({ messageId, emoji, senderId: reactSenderId }: {
+      messageId: string; emoji: string | null; senderId?: string;
+    }) => {
+      // Ignorar reações de usuários bloqueados
+      if (reactSenderId && blockedIds.has(reactSenderId)) return;
+      setMessages(prev => prev.map(m => {
+        if (m.id !== messageId) return m;
+        let next = (m.reactions ?? []).filter(r => r.userId !== reactSenderId);
+        if (emoji && reactSenderId) next = [...next, { emoji, userId: reactSenderId }];
+        return { ...m, reactions: next.length > 0 ? next : null };
+      }));
     });
 
     // Mensagem deletada pelo outro usuário em tempo real
@@ -1038,7 +1124,7 @@ export default function ChatScreen({ route, navigation }: any) {
       socket.off('message_blocked');
       socket.off('presence:update', onPresence);
     };
-  }, [conversation.id, loadMessages, other?.id, user?.id, showToast, LAST_SEEN_KEY]);
+  }, [conversation.id, loadMessages, other?.id, user?.id, showToast, LAST_SEEN_KEY, blockedIds]);
 
   // ── Enviar ─────────────────────────────────────────────────────────────
   const handleSend = useCallback(async () => {
@@ -1182,15 +1268,8 @@ export default function ChatScreen({ route, navigation }: any) {
   // ── Double tap → ❤️ ───────────────────────────────────────────────────
   const handleDouble = useCallback((msg: Message) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-    const newReaction = msg.reaction === '❤️' ? null : '❤️';
-    setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, reaction: newReaction } : m));
-    if (!msg.id.startsWith('temp-')) {
-      api.patch(`/messages/${msg.id}/reaction`, { reaction: newReaction }).catch(() => {});
-      socketService.getSocket()?.emit('message_reaction', {
-        conversationId: conversation.id, messageId: msg.id, reaction: newReaction,
-      });
-    }
-  }, [conversation.id]);
+    applyReactionDirect(msg, '❤️');
+  }, []);
 
   const closeSheet = useCallback(() => {
     setSheetOpen(false);
@@ -1198,21 +1277,48 @@ export default function ChatScreen({ route, navigation }: any) {
   }, []);
 
   // ── Reação via sheet ───────────────────────────────────────────────────
+  // Toggle de reação: mesmo emoji → remove; emoji novo → adiciona/troca
+  const applyReactionDirect = useCallback((msg: Message, emoji: string) => {
+    if (msg.id.startsWith('temp-')) return;
+    const currentReactions = msg.reactions ?? [];
+    const myReaction = currentReactions.find(r => r.userId === user?.id);
+    const isToggleOff = myReaction?.emoji === emoji;
+
+    // Otimista
+    setMessages(prev => prev.map(m => {
+      if (m.id !== msg.id) return m;
+      let next = (m.reactions ?? []).filter(r => r.userId !== user?.id);
+      if (!isToggleOff) next = [...next, { emoji, userId: user?.id ?? '' }];
+      return { ...m, reactions: next.length > 0 ? next : null };
+    }));
+
+    api.patch(`/messages/${msg.id}/reaction`, { emoji: isToggleOff ? null : emoji })
+      .then(({ data }) => {
+        // Sincronizar com o valor real do servidor
+        setMessages(prev => prev.map(m =>
+          m.id === msg.id ? { ...m, reactions: data.reactions ?? null } : m
+        ));
+      })
+      .catch(() => {
+        // Reverter em caso de erro
+        setMessages(prev => prev.map(m =>
+          m.id === msg.id ? { ...m, reactions: msg.reactions } : m
+        ));
+      });
+
+    socketService.getSocket()?.emit('message_reaction', {
+      conversationId: conversation.id,
+      messageId: msg.id,
+      emoji: isToggleOff ? null : emoji,
+      senderId: user?.id,
+    });
+  }, [user?.id, conversation.id]);
+
   const applyReaction = useCallback((emoji: string) => {
     if (!selectedMsg) return;
-    const msgId = selectedMsg.id;
-    const newReaction = selectedMsg.reaction === emoji ? null : emoji;
     closeSheet();
-    setTimeout(() => {
-      setMessages(msgs => msgs.map(m => m.id === msgId ? { ...m, reaction: newReaction } : m));
-      if (!msgId.startsWith('temp-')) {
-        api.patch(`/messages/${msgId}/reaction`, { reaction: newReaction }).catch(() => {});
-        socketService.getSocket()?.emit('message_reaction', {
-          conversationId: conversation.id, messageId: msgId, reaction: newReaction,
-        });
-      }
-    }, 50);
-  }, [selectedMsg, closeSheet, conversation.id]);
+    setTimeout(() => applyReactionDirect(selectedMsg, emoji), 50);
+  }, [selectedMsg, closeSheet, applyReactionDirect]);
 
   // ── Copiar texto ───────────────────────────────────────────────────────
   const handleCopy = useCallback(() => {
@@ -1246,21 +1352,45 @@ export default function ChatScreen({ route, navigation }: any) {
 
   const handleDeleteFromSheet = useCallback(() => {
     if (!selectedMsg) return;
-    const msgId = selectedMsg.id;
-    closeSheet();
-    deleteMsg(msgId);
+    const msgId    = selectedMsg.id;
+    const isImage  = !!selectedMsg.imageUrl;
+    if (isImage) {
+      // Alert de confirmação apenas para imagens
+      closeSheet();
+      setTimeout(() => {
+        Alert.alert(
+          'Apagar imagem',
+          'Tens a certeza que queres apagar esta imagem?',
+          [
+            { text: 'Cancelar', style: 'cancel' },
+            { text: 'Apagar', style: 'destructive', onPress: () => deleteMsg(msgId) },
+          ]
+        );
+      }, 300); // aguarda sheet fechar
+    } else {
+      closeSheet();
+      deleteMsg(msgId);
+    }
   }, [selectedMsg, closeSheet, deleteMsg]);
 
   // ── Render ─────────────────────────────────────────────────────────────
   const isMe = (msg: Message) => msg.senderId === user?.id;
 
   // Fade do header "Mensagens não lidas" — sincronizado com o highlight (5s)
-  const unreadHeaderOp = useRef(new RNAnimated.Value(0)).current;
+  const unreadHeaderOp = useRef(
+    new RNAnimated.Value(firstUnreadIdx >= 0 ? 1 : 0)
+  ).current;
   useEffect(() => {
-    if (firstUnreadIdx < 0) return;
+    if (firstUnreadIdx < 0) {
+      unreadHeaderOp.setValue(0);
+      return;
+    }
+    // Certificar que está visível
     unreadHeaderOp.setValue(1);
     const t = setTimeout(() => {
-      RNAnimated.timing(unreadHeaderOp, { toValue: 0, duration: 1200, useNativeDriver: true }).start();
+      RNAnimated.timing(unreadHeaderOp, {
+        toValue: 0, duration: 1200, useNativeDriver: true,
+      }).start();
     }, 5000);
     return () => clearTimeout(t);
   }, [firstUnreadIdx, unreadHeaderOp]);
@@ -1293,6 +1423,8 @@ export default function ChatScreen({ route, navigation }: any) {
           onLong={handleLong}
           onDouble={handleDouble}
           onImagePress={d => setViewerData(d)}
+          onReact={applyReactionDirect}
+          user={user}
         />
       </View>
     );
@@ -1349,6 +1481,13 @@ export default function ChatScreen({ route, navigation }: any) {
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
+            onContentSizeChange={() => {
+              // Scroll inicial garantido quando o conteúdo renderiza
+              if (!scrolledOnce.current) {
+                scrolledOnce.current = true;
+                flatRef.current?.scrollToEnd({ animated: false });
+              }
+            }}
             onScrollToIndexFailed={({ index }) => {
               setTimeout(() => {
                 flatRef.current?.scrollToIndex({ index, animated: false, viewPosition: 0.2 });
@@ -1440,8 +1579,17 @@ export default function ChatScreen({ route, navigation }: any) {
         data={viewerData}
         onClose={() => setViewerData(null)}
         onDelete={msgId => {
-          setViewerData(null);
-          deleteMsg(msgId);
+          Alert.alert(
+            'Apagar imagem',
+            'Tens a certeza que queres apagar esta imagem?',
+            [
+              { text: 'Cancelar', style: 'cancel' },
+              { text: 'Apagar', style: 'destructive', onPress: () => {
+                setViewerData(null);
+                deleteMsg(msgId);
+              }},
+            ]
+          );
         }}
       />
     </View>
