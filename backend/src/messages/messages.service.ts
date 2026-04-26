@@ -130,6 +130,18 @@ export class MessagesService {
     if (conv.participantAId !== userId && conv.participantBId !== userId)
       throw new ForbiddenException();
 
+    // Hard block — reações também bloqueadas em ambas as direções
+    const recipientId = conv.participantAId === userId
+      ? conv.participantBId
+      : conv.participantAId;
+    const blocked = await this.blockRepo.findOne({
+      where: [
+        { blockerId: recipientId, blockedId: userId },
+        { blockerId: userId,      blockedId: recipientId },
+      ],
+    });
+    if (blocked) throw new ForbiddenException('blocked');
+
     // Clonar array atual ou iniciar vazio
     let reactions: MessageReaction[] = Array.isArray(msg.reactions) ? [...msg.reactions] : [];
 

@@ -949,7 +949,8 @@ export default function ChatScreen({ route, navigation }: any) {
   const scrolledOnce = useRef(false);
   const hasContent   = input.trim().length > 0 || selectedImage !== null;
 
-  const DRAFT_KEY    = `@venus:draft:${conversation.id}`;
+  const DRAFT_KEY        = `@venus:draft:${conversation.id}`;
+  const BLOCKED_MSGS_KEY = `@venus:blocked_msgs:${conversation.id}`;
   const LAST_SEEN_KEY = `@venus:last_seen:${conversation.id}`;
 
   const showToast = useCallback((text: string, type: 'info'|'success'|'error' = 'info', ms = 2800) => {
@@ -1009,7 +1010,29 @@ export default function ChatScreen({ route, navigation }: any) {
         imageUrl:    m.imageUrl    ?? null,
         reactions:   Array.isArray(m.reactions) ? m.reactions : (m.reaction ? [{ emoji: m.reaction, userId: m.senderId }] : null),
       }));
-      setMessages(msgs);
+      // Mesclar com mensagens bloqueadas salvas (✓ slate eterno — comportamento WhatsApp)
+      try {
+        const raw = await AsyncStorage.getItem(BLOCKED_MSGS_KEY);
+        const blockedMsgs: Message[] = raw ? JSON.parse(raw) : [];
+        if (blockedMsgs.length > 0) {
+          // Só manter as que ainda não existem no banco (nunca foram entregues)
+          const bankIds = new Set(msgs.map(m => m.id));
+          const stillBlocked = blockedMsgs.filter(m => !bankIds.has(m.id));
+          // Ordenar tudo por createdAt
+          const merged = [...msgs, ...stillBlocked].sort(
+            (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+          );
+          setMessages(merged);
+          // Atualizar AsyncStorage removendo as que já chegaram
+          if (stillBlocked.length !== blockedMsgs.length) {
+            await AsyncStorage.setItem(BLOCKED_MSGS_KEY, JSON.stringify(stillBlocked));
+          }
+        } else {
+          setMessages(msgs);
+        }
+      } catch {
+        setMessages(msgs);
+      }
 
       // Calcular unread: só aparece se há msgs novas após o último ID visto
       const lastSeenId = await AsyncStorage.getItem(LAST_SEEN_KEY).catch(() => null);
@@ -1040,7 +1063,7 @@ export default function ChatScreen({ route, navigation }: any) {
       scrolledOnce.current = false;
     } catch {}
     finally { setLoading(false); }
-  }, [conversation.id, user?.id, LAST_SEEN_KEY]);
+  }, [conversation.id, user?.id, LAST_SEEN_KEY, BLOCKED_MSGS_KEY]);
 
   // ── Presença ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -1109,7 +1132,24 @@ export default function ChatScreen({ route, navigation }: any) {
       ));
     });
 
-    socket.on('message_blocked', () => { /* silencioso — mensagem fica com ✓ slate eterno, comportamento WhatsApp */ });
+    socket.on('message_blocked', async () => {
+      // Silencioso — mensagem fica com ✓ slate eterno (comportamento WhatsApp)
+      // Persistir todas as temps atuais no AsyncStorage para sobreviver ao reload
+      setMessages(prev => {
+        const temps = prev.filter(m => m.id.startsWith('temp-'));
+        if (temps.length > 0) {
+          AsyncStorage.getItem(BLOCKED_MSGS_KEY).then(raw => {
+            const existing: Message[] = raw ? JSON.parse(raw) : [];
+            const existingIds = new Set(existing.map(m => m.id));
+            const toAdd = temps.filter(m => !existingIds.has(m.id));
+            if (toAdd.length > 0) {
+              AsyncStorage.setItem(BLOCKED_MSGS_KEY, JSON.stringify([...existing, ...toAdd])).catch(() => {});
+            }
+          }).catch(() => {});
+        }
+        return prev; // não muda o estado
+      });
+    });
 
     const onPresence = ({ userId, status }: { userId: string; status: PresenceStatus }) => {
       if (userId === other?.id) setOtherPresence(status);
