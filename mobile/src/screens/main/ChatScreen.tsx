@@ -1351,6 +1351,7 @@ export default function ChatScreen({ route, navigation }: any) {
   }, []);
 
   // ── Double tap → ❤️ ───────────────────────────────────────────────────
+  // ── Double tap → ❤️ ───────────────────────────────────────────────────
   const handleDouble = useCallback((msg: Message) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     if (msg.id.startsWith('temp-')) return;
@@ -1367,18 +1368,23 @@ export default function ChatScreen({ route, navigation }: any) {
         setMessages(prev => prev.map(m =>
           m.id === msg.id ? { ...m, reactions: data.reactions ?? null } : m
         ));
+        // Só emitir socket se servidor aceitou — bloqueados não propagam reação
+        socketService.getSocket()?.emit('message_reaction', {
+          conversationId: conversation.id,
+          messageId: msg.id,
+          emoji: isToggleOff ? null : '❤️',
+          senderId: user?.id,
+        });
       })
-      .catch(() => {
+      .catch((e: any) => {
+        if (e?.response?.status === 403) {
+          // 403 blocked — silencioso (comportamento WhatsApp)
+          return;
+        }
         setMessages(prev => prev.map(m =>
           m.id === msg.id ? { ...m, reactions: msg.reactions } : m
         ));
       });
-    socketService.getSocket()?.emit('message_reaction', {
-      conversationId: conversation.id,
-      messageId: msg.id,
-      emoji: isToggleOff ? null : '❤️',
-      senderId: user?.id,
-    });
   }, [user?.id, conversation.id]);
 
   const closeSheet = useCallback(() => {
@@ -1387,13 +1393,13 @@ export default function ChatScreen({ route, navigation }: any) {
   }, []);
 
   // ── Reação via sheet ───────────────────────────────────────────────────
+  // ── Reação via sheet ───────────────────────────────────────────────────
   // Toggle de reação: mesmo emoji → remove; emoji novo → adiciona/troca
   const applyReactionDirect = useCallback((msg: Message, emoji: string) => {
     if (msg.id.startsWith('temp-')) return;
     const currentReactions = msg.reactions ?? [];
     const myReaction = currentReactions.find(r => r.userId === user?.id);
     const isToggleOff = myReaction?.emoji === emoji;
-
     // Otimista
     setMessages(prev => prev.map(m => {
       if (m.id !== msg.id) return m;
@@ -1401,13 +1407,19 @@ export default function ChatScreen({ route, navigation }: any) {
       if (!isToggleOff) next = [...next, { emoji, userId: user?.id ?? '' }];
       return { ...m, reactions: next.length > 0 ? next : null };
     }));
-
     api.patch(`/messages/${msg.id}/reaction`, { emoji: isToggleOff ? null : emoji })
       .then(({ data }) => {
         // Sincronizar com o valor real do servidor
         setMessages(prev => prev.map(m =>
           m.id === msg.id ? { ...m, reactions: data.reactions ?? null } : m
         ));
+        // Só emitir socket se servidor aceitou — bloqueados não propagam reação
+        socketService.getSocket()?.emit('message_reaction', {
+          conversationId: conversation.id,
+          messageId: msg.id,
+          emoji: isToggleOff ? null : emoji,
+          senderId: user?.id,
+        });
       })
       .catch((e: any) => {
         if (e?.response?.status === 403) {
@@ -1429,14 +1441,7 @@ export default function ChatScreen({ route, navigation }: any) {
           m.id === msg.id ? { ...m, reactions: msg.reactions } : m
         ));
       });
-
-    socketService.getSocket()?.emit('message_reaction', {
-      conversationId: conversation.id,
-      messageId: msg.id,
-      emoji: isToggleOff ? null : emoji,
-      senderId: user?.id,
-    });
-  }, [user?.id, conversation.id]);
+  }, [user?.id, conversation.id, BLOCKED_REACTIONS_KEY]);
 
   const applyReaction = useCallback((emoji: string) => {
     if (!selectedMsg) return;
