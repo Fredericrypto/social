@@ -30,18 +30,43 @@ export class MessagesService {
   }
 
   async getConversations(userId: string) {
-    return this.convRepo
+    const convs = await this.convRepo
       .createQueryBuilder('conv')
       .where('conv.participantAId = :id OR conv.participantBId = :id', { id: userId })
       .leftJoinAndSelect('conv.participantA', 'pA')
       .leftJoinAndSelect('conv.participantB', 'pB')
       .orderBy('conv.lastMessageAt', 'DESC', 'NULLS LAST')
-      .getMany()
-      .then(convs => convs.map(c => ({
+      .getMany();
+
+    // Buscar lastMessage e unreadCount para cada conversa
+    const enriched = await Promise.all(convs.map(async c => {
+      // lastMessage
+      let lastMessage = null;
+      if (c.lastMessageId) {
+        lastMessage = await this.msgRepo.findOne({
+          where: { id: c.lastMessageId },
+          select: ['id', 'content', 'imageUrl', 'senderId', 'createdAt', 'isRead'],
+        });
+      }
+      // unreadCount — mensagens não lidas do outro participante
+      const unreadCount = await this.msgRepo.count({
+        where: {
+          conversationId: c.id,
+          senderId: c.participantAId === userId ? c.participantBId : c.participantAId,
+          isRead: false,
+          isDeleted: false,
+        },
+      });
+      return {
         ...c,
-        participantA: this.sanitizeUser(c.participantA),
-        participantB: this.sanitizeUser(c.participantB),
-      })));
+        participantA:  this.sanitizeUser(c.participantA),
+        participantB:  this.sanitizeUser(c.participantB),
+        lastMessage,
+        unreadCount,
+      };
+    }));
+
+    return enriched;
   }
 
   async getMessages(conversationId: string, userId: string, page = 1, limit = 30) {
