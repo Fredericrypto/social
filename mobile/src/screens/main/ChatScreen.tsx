@@ -1214,10 +1214,25 @@ export default function ChatScreen({ route, navigation }: any) {
           : m
         ));
       } catch (e: any) {
-        if (e?.response?.status !== 403) {
+        if (e?.response?.status === 403) {
+          // 403 blocked — silencioso, persistir temp no AsyncStorage (comportamento WhatsApp)
+          setMessages(prev => {
+            const temps = prev.filter(m => m.id.startsWith('temp-'));
+            if (temps.length > 0) {
+              AsyncStorage.getItem(BLOCKED_MSGS_KEY).then(raw => {
+                const existing: Message[] = raw ? JSON.parse(raw) : [];
+                const existingIds = new Set(existing.map(m => m.id));
+                const toAdd = temps.filter(m => !existingIds.has(m.id));
+                if (toAdd.length > 0) {
+                  AsyncStorage.setItem(BLOCKED_MSGS_KEY, JSON.stringify([...existing, ...toAdd])).catch(() => {});
+                }
+              }).catch(() => {});
+            }
+            return prev;
+          });
+        } else {
           setMessages(prev => prev.filter(m => m.id !== tempId));
         }
-        // 403 blocked — silencioso, mensagem fica com ✓ slate eterno
       }
     }
   }, [input, selectedImage, isBlocked, conversation.id, user?.id, DRAFT_KEY, showToast]);
