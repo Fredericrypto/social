@@ -1109,7 +1109,7 @@ export default function ChatScreen({ route, navigation }: any) {
       ));
     });
 
-    socket.on('message_blocked', () => { setMessages(prev => prev.filter(m => !m.id.startsWith('temp-'))); showToast('Não foi possível enviar a mensagem', 'error'); });
+    socket.on('message_blocked', () => { /* silencioso — mensagem fica com ✓ slate eterno, comportamento WhatsApp */ });
 
     const onPresence = ({ userId, status }: { userId: string; status: PresenceStatus }) => {
       if (userId === other?.id) setOtherPresence(status);
@@ -1173,8 +1173,11 @@ export default function ChatScreen({ route, navigation }: any) {
           ? { ...data, isRead: false, deliveredAt: data.deliveredAt ?? null, imageUrl: data.imageUrl ?? finalImageUrl }
           : m
         ));
-      } catch {
-        setMessages(prev => prev.filter(m => m.id !== tempId));
+      } catch (e: any) {
+        if (e?.response?.status !== 403) {
+          setMessages(prev => prev.filter(m => m.id !== tempId));
+        }
+        // 403 blocked — silencioso, mensagem fica com ✓ slate eterno
       }
     }
   }, [input, selectedImage, isBlocked, conversation.id, user?.id, DRAFT_KEY, showToast]);
