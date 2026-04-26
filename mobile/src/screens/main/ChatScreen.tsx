@@ -1109,7 +1109,7 @@ export default function ChatScreen({ route, navigation }: any) {
       ));
     });
 
-    socket.on('message_blocked', () => showToast('Não foi possível enviar a mensagem', 'error'));
+    socket.on('message_blocked', () => { setMessages(prev => prev.filter(m => !m.id.startsWith('temp-'))); showToast('Não foi possível enviar a mensagem', 'error'); });
 
     const onPresence = ({ userId, status }: { userId: string; status: PresenceStatus }) => {
       if (userId === other?.id) setOtherPresence(status);
