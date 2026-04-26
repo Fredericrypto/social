@@ -948,6 +948,10 @@ export default function ChatScreen({ route, navigation }: any) {
   const menuBtnRef   = useRef<View>(null);
   const toastTimer   = useRef<any>(null);
   const scrolledOnce = useRef(false);
+  const currentPage  = useRef(1);
+  const hasMorePages = useRef(true);
+  const loadingMore  = useRef(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const hasContent   = input.trim().length > 0 || selectedImage !== null;
 
   const DRAFT_KEY        = `@venus:draft:${conversation.id}`;
@@ -1005,6 +1009,10 @@ export default function ChatScreen({ route, navigation }: any) {
 
   // ── Carregar mensagens ─────────────────────────────────────────────────
   const loadMessages = useCallback(async () => {
+    // Resetar paginação ao recarregar do zero
+    currentPage.current  = 1;
+    hasMorePages.current = true;
+    loadingMore.current  = false;
     try {
       const { data } = await api.get(`/messages/conversations/${conversation.id}`);
       const msgs: Message[] = (data.messages || data || []).map((m: any) => ({
@@ -1080,6 +1088,42 @@ export default function ChatScreen({ route, navigation }: any) {
     } catch {}
     finally { setLoading(false); }
   }, [conversation.id, user?.id, LAST_SEEN_KEY, BLOCKED_MSGS_KEY, BLOCKED_REACTIONS_KEY]);
+
+  // ── Carregar mensagens mais antigas (paginação) ──────────────────────────
+  const loadMoreMessages = useCallback(async () => {
+    if (loadingMore.current || !hasMorePages.current) return;
+    loadingMore.current = true;
+    setIsLoadingMore(true);
+    const nextPage = currentPage.current + 1;
+    try {
+      const { data } = await api.get(
+        `/messages/conversations/${conversation.id}?page=${nextPage}`
+      );
+      const older: Message[] = (data.messages || data || []).map((m: any) => ({
+        ...m,
+        isRead:      m.isRead      ?? false,
+        deliveredAt: m.deliveredAt ?? null,
+        imageUrl:    m.imageUrl    ?? null,
+        reactions:   Array.isArray(m.reactions) ? m.reactions
+          : (m.reaction ? [{ emoji: m.reaction, userId: m.senderId }] : null),
+      }));
+      if (older.length === 0) {
+        hasMorePages.current = false;
+      } else {
+        currentPage.current = nextPage;
+        // Prepend mantendo a posição do scroll
+        setMessages(prev => {
+          const existingIds = new Set(prev.map(m => m.id));
+          const newOnes = older.filter(m => !existingIds.has(m.id));
+          return [...newOnes, ...prev];
+        });
+      }
+    } catch { /* silencioso */ }
+    finally {
+      loadingMore.current = false;
+      setIsLoadingMore(false);
+    }
+  }, [conversation.id]);
 
   // ── Presença ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -1610,6 +1654,24 @@ export default function ChatScreen({ route, navigation }: any) {
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
+            onScroll={({ nativeEvent }) => {
+              // Detectar chegada ao topo — carregar mensagens mais antigas
+              if (nativeEvent.contentOffset.y < 80) {
+                loadMoreMessages();
+              }
+            }}
+            scrollEventThrottle={200}
+            ListHeaderComponent={
+              isLoadingMore ? (
+                <View style={{ alignItems: 'center', paddingVertical: 12 }}>
+                  <Text style={{ color: C.textTer, fontSize: 12 }}>Carregando...</Text>
+                </View>
+              ) : !hasMorePages.current ? (
+                <View style={{ alignItems: 'center', paddingVertical: 12 }}>
+                  <Text style={{ color: C.textTer, fontSize: 12 }}>Início da conversa</Text>
+                </View>
+              ) : null
+            }
             onContentSizeChange={() => {
               // Scroll inicial garantido quando o conteúdo renderiza
               if (!scrolledOnce.current) {
