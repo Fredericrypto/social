@@ -181,7 +181,7 @@ function SwipeableConvRow({ item, other, myId, theme, isDark, onPress, onDelete,
                 {preview}
               </Text>
               {hasUnread && (
-                <View style={[cr.badge, { backgroundColor: theme.primary }]}>
+                <View style={[cr.badge, { backgroundColor: '#06B6D4', shadowColor: '#06B6D4', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.7, shadowRadius: 6, elevation: 4 }]}>
                   <Text style={cr.badgeTxt}>{item.unreadCount > 99 ? "99+" : item.unreadCount}</Text>
                 </View>
               )}
@@ -372,6 +372,12 @@ export default function MessagesScreen({ navigation }: any) {
     conv.participantAId === user?.id ? conv.participantB : conv.participantA;
 
   const handleOpen = (conv: any, other: any) => {
+    // Zerar badge otimisticamente
+    setConversations(prev =>
+      prev.map(c => c.id === conv.id ? { ...c, unreadCount: 0 } : c)
+    );
+    // Marcar como lido no backend
+    api.post(`/messages/conversations/${conv.id}/read`).catch(() => {});
     navigation.navigate("Chat", { conversation: conv, other });
   };
 

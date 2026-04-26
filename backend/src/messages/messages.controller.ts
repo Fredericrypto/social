@@ -91,6 +91,12 @@ export class MessagesController {
     await this.messagesService.deleteMessage(id, req.user.id);
   }
 
+  @Post('conversations/:id/read')
+  @HttpCode(204)
+  async markRead(@Request() req, @Param('id') id: string) {
+    await this.messagesService.markConversationRead(id, req.user.id);
+  }
+
   @Get('unread-count')
   unreadCount(@Request() req) {
     return this.messagesService.getUnreadCount(req.user.id);
