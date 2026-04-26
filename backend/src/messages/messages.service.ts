@@ -38,8 +38,16 @@ export class MessagesService {
       .orderBy('conv.lastMessageAt', 'DESC', 'NULLS LAST')
       .getMany();
 
+    // Filtrar conversas onde o usuário limpou tudo — não devem aparecer na lista
+    const visible = convs.filter(c => {
+      const clearedAt = c.participantAId === userId ? c.lastClearedAtA : c.lastClearedAtB;
+      if (!clearedAt) return true; // nunca limpou — mostrar sempre
+      if (!c.lastMessageAt) return false; // sem mensagens — ocultar
+      return new Date(c.lastMessageAt) > new Date(clearedAt); // tem msgs após o clear
+    });
+
     // Buscar lastMessage e unreadCount para cada conversa
-    const enriched = await Promise.all(convs.map(async c => {
+    const enriched = await Promise.all(visible.map(async c => {
       // lastMessage
       let lastMessage = null;
       if (c.lastMessageId) {
