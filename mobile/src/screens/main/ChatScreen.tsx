@@ -950,7 +950,8 @@ export default function ChatScreen({ route, navigation }: any) {
   const hasContent   = input.trim().length > 0 || selectedImage !== null;
 
   const DRAFT_KEY        = `@venus:draft:${conversation.id}`;
-  const BLOCKED_MSGS_KEY = `@venus:blocked_msgs:${conversation.id}`;
+  const BLOCKED_MSGS_KEY      = `@venus:blocked_msgs:${conversation.id}`;
+  const BLOCKED_REACTIONS_KEY = `@venus:blocked_reactions:${conversation.id}`;
   const LAST_SEEN_KEY = `@venus:last_seen:${conversation.id}`;
 
   const showToast = useCallback((text: string, type: 'info'|'success'|'error' = 'info', ms = 2800) => {
@@ -1033,6 +1034,18 @@ export default function ChatScreen({ route, navigation }: any) {
       } catch {
         setMessages(msgs);
       }
+      // Aplicar reações bloqueadas salvas (só visíveis para o bloqueado — comportamento WhatsApp)
+      try {
+        const rawR = await AsyncStorage.getItem(BLOCKED_REACTIONS_KEY);
+        if (rawR) {
+          const blockedReactions: Record<string, MessageReaction[]> = JSON.parse(rawR);
+          setMessages(prev => prev.map(m => {
+            const saved = blockedReactions[m.id];
+            if (!saved) return m;
+            return { ...m, reactions: saved };
+          }));
+        }
+      } catch { /* silencioso */ }
 
       // Calcular unread: só aparece se há msgs novas após o último ID visto
       const lastSeenId = await AsyncStorage.getItem(LAST_SEEN_KEY).catch(() => null);
@@ -1063,7 +1076,7 @@ export default function ChatScreen({ route, navigation }: any) {
       scrolledOnce.current = false;
     } catch {}
     finally { setLoading(false); }
-  }, [conversation.id, user?.id, LAST_SEEN_KEY, BLOCKED_MSGS_KEY]);
+  }, [conversation.id, user?.id, LAST_SEEN_KEY, BLOCKED_MSGS_KEY, BLOCKED_REACTIONS_KEY]);
 
   // ── Presença ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -1393,8 +1406,22 @@ export default function ChatScreen({ route, navigation }: any) {
           m.id === msg.id ? { ...m, reactions: data.reactions ?? null } : m
         ));
       })
-      .catch(() => {
-        // Reverter em caso de erro
+      .catch((e: any) => {
+        if (e?.response?.status === 403) {
+          // 403 blocked — silencioso, persistir reação localmente (comportamento WhatsApp)
+          setMessages(prev => {
+            const updated = prev.find(m => m.id === msg.id);
+            if (!updated) return prev;
+            AsyncStorage.getItem(BLOCKED_REACTIONS_KEY).then(raw => {
+              const existing: Record<string, MessageReaction[]> = raw ? JSON.parse(raw) : {};
+              existing[msg.id] = updated.reactions ?? [];
+              AsyncStorage.setItem(BLOCKED_REACTIONS_KEY, JSON.stringify(existing)).catch(() => {});
+            }).catch(() => {});
+            return prev;
+          });
+          return;
+        }
+        // Reverter em caso de erro real
         setMessages(prev => prev.map(m =>
           m.id === msg.id ? { ...m, reactions: msg.reactions } : m
         ));
