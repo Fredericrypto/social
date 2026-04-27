@@ -1,8 +1,13 @@
 /**
- * ChatScreen.tsx — Venus v14
- * Tema 100% dinâmico — todos os estilos são funções de C (ChatColors)
- * passado como prop para cada subcomponente. StyleSheet.create() estático
- * apenas para valores que não dependem do tema (layout, dimensões).
+ * ChatScreen.tsx — Venus v15
+ *
+ * Scroll inicial:
+ *  - Sem mensagens não lidas → scrollToEnd imediato no onLayout do FlatList
+ *  - Com mensagens não lidas → scrollToIndex na primeira não lida no onLayout
+ *  - Uma única flag (didInitialScroll ref) garante que só acontece uma vez
+ *
+ * Tema dinâmico via buildColors(theme, isDark) — C é passado como prop
+ * para cada subcomponente. Nenhum StyleSheet usa cores hardcoded.
  */
 
 import React, {
@@ -46,29 +51,28 @@ export interface ChatColors {
   border: string; borderHi: string;
   text: string; textSec: string; textTer: string; primaryLt: string;
   cyan: string; danger: string; success: string;
-  bubble1: string; bubble2: string; bubbleMe: string; bubbleMeLight: string; unread: string;
+  bubbleMe: string; bubbleMeLight: string; bubbleOther: string;
+  unread: string;
 }
 
 function buildColors(theme: any, isDark: boolean): ChatColors {
   return {
-    bg:        theme.background,
-    surface:   theme.surface,
-    surfaceHi: theme.surfaceHigh,
-    border:    theme.border,
-    borderHi:  theme.border,
-    text:      theme.text,
-    textSec:   theme.textSecondary,
-    textTer:   theme.textSecondary,
-    primaryLt: theme.primaryLight ?? '#94A3B8',
-    cyan:      '#22D3EE',
-    danger:    '#F87171',
-    success:   '#4ADE80',
-    // Bolhas: meu balão usa primary da paleta, outro usa surface/surfaceHigh
-    bubble1:   theme.surfaceHigh,
-    bubble2:   theme.surface,
+    bg:            theme.background,
+    surface:       theme.surface,
+    surfaceHi:     theme.surfaceHigh,
+    border:        theme.border,
+    borderHi:      theme.border,
+    text:          theme.text,
+    textSec:       theme.textSecondary,
+    textTer:       theme.textSecondary,
+    primaryLt:     theme.primaryLight ?? '#94A3B8',
+    cyan:          '#22D3EE',
+    danger:        '#F87171',
+    success:       '#4ADE80',
     bubbleMe:      theme.primary,
     bubbleMeLight: theme.primaryLight ?? theme.primary,
-    unread:    'rgba(34,211,238,0.08)',
+    bubbleOther:   theme.surfaceHigh,
+    unread:        'rgba(34,211,238,0.08)',
   };
 }
 
@@ -99,12 +103,12 @@ const REPORT_REASONS: { value: ReportReason; label: string }[] = [
 const REACTIONS = ['❤️', '😂', '😮', '😢', '👏', '🔥'];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-function groupReactions(reactions: MessageReaction[] | null | undefined): ReactionGroup[] {
-  if (!reactions?.length) return [];
+function groupReactions(r: MessageReaction[] | null | undefined): ReactionGroup[] {
+  if (!r?.length) return [];
   const map = new Map<string, ReactionGroup>();
-  for (const r of reactions) {
-    const g = map.get(r.emoji) ?? { emoji: r.emoji, count: 0, userIds: [] };
-    g.count++; g.userIds.push(r.userId); map.set(r.emoji, g);
+  for (const x of r) {
+    const g = map.get(x.emoji) ?? { emoji: x.emoji, count: 0, userIds: [] };
+    g.count++; g.userIds.push(x.userId); map.set(x.emoji, g);
   }
   return Array.from(map.values());
 }
@@ -125,9 +129,8 @@ function newDay(msgs: Message[], i: number) {
   return new Date(msgs[i-1].createdAt).toDateString() !== new Date(msgs[i].createdAt).toDateString();
 }
 
-// ─── CheckIcon ────────────────────────────────────────────────────────────────
-function CheckIcon({ state }: { state: CheckState; C?: ChatColors }) {
-  // Cyan = lido, Slate = entregue/enviado — fixo, independente do tema
+// ─── CheckIcon — cyan=lido, slate=enviado/entregue, independente do tema ──────
+function CheckIcon({ state }: { state: CheckState }) {
   const color = state === 'read' ? '#22D3EE' : '#94A3B8';
   return <Ionicons name={state !== 'sent' ? 'checkmark-done' : 'checkmark'} size={12} color={color} />;
 }
@@ -154,7 +157,7 @@ function ImageViewer({ data, onClose, onDelete, C }: {
     }
   }, [visible]);
 
-  const panResponder = useRef(PanResponder.create({
+  const pan = useRef(PanResponder.create({
     onStartShouldSetPanResponder: () => false,
     onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dy) > 15 && Math.abs(g.dy) > Math.abs(g.dx),
     onPanResponderMove: (_, g) => { swipeAnim.setValue(g.dy); },
@@ -172,7 +175,7 @@ function ImageViewer({ data, onClose, onDelete, C }: {
     <Modal visible transparent animationType="none" onRequestClose={onClose}>
       <RNAnimated.View style={[iv.container, { opacity: bgOp }]}>
         <StatusBar barStyle="light-content" backgroundColor="#000" translucent />
-        <RNAnimated.View style={[StyleSheet.absoluteFill, { transform: [{ translateY: swipeAnim }] }]} {...panResponder.panHandlers}>
+        <RNAnimated.View style={[StyleSheet.absoluteFill, { transform: [{ translateY: swipeAnim }] }]} {...pan.panHandlers}>
           <ScrollView style={StyleSheet.absoluteFill} contentContainerStyle={iv.scrollContent}
             maximumZoomScale={4} minimumZoomScale={1} centerContent bounces={false}
             showsHorizontalScrollIndicator={false} showsVerticalScrollIndicator={false}>
@@ -183,12 +186,12 @@ function ImageViewer({ data, onClose, onDelete, C }: {
         </RNAnimated.View>
         {uiVisible && (
           <View style={[iv.uiOverlay, { paddingTop: insets.top + 12 }]} pointerEvents="box-none">
-            <TouchableOpacity style={iv.uiBtn} onPress={onClose} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+            <TouchableOpacity style={iv.uiBtn} onPress={onClose}>
               <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} />
               <Ionicons name="close" size={22} color="#fff" />
             </TouchableOpacity>
             {data.isMine && (
-              <TouchableOpacity style={[iv.uiBtn]} onPress={() => { onDelete(data.msgId); onClose(); }} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+              <TouchableOpacity style={iv.uiBtn} onPress={() => { onDelete(data.msgId); onClose(); }}>
                 <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} />
                 <Ionicons name="trash-outline" size={20} color={C.danger} />
               </TouchableOpacity>
@@ -239,7 +242,6 @@ function GlowBtn({ onPress, children, size = 36, radius = 12, disabled = false, 
 }) {
   const glow  = useSharedValue(0);
   const scale = useSharedValue(1);
-
   const press = () => {
     if (disabled) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
@@ -247,14 +249,9 @@ function GlowBtn({ onPress, children, size = 36, radius = 12, disabled = false, 
       withTiming(0.92, { duration: 60, easing: Easing.out(Easing.quad) }),
       withSpring(1, { damping: 14, stiffness: 500, mass: 0.4 }),
     );
-    glow.value = withSequence(
-      withTiming(1,   { duration: 100 }),
-      withTiming(0.8, { duration: 250 }),
-      withTiming(0,   { duration: 450 }),
-    );
+    glow.value = withSequence(withTiming(1, { duration: 100 }), withTiming(0.8, { duration: 250 }), withTiming(0, { duration: 450 }));
     onPress();
   };
-
   const wrapStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
     shadowColor: '#94A3B8', shadowOffset: { width: 0, height: 0 },
@@ -262,7 +259,6 @@ function GlowBtn({ onPress, children, size = 36, radius = 12, disabled = false, 
   }));
   const borderOp = useAnimatedStyle(() => ({ opacity: 0.25 + glow.value * 0.75 }));
   const BORDER = 1.5;
-
   return (
     <Animated.View style={[{ width: size, height: size }, wrapStyle]}>
       <Animated.View style={[StyleSheet.absoluteFillObject, { borderRadius: radius, overflow: 'hidden' }, borderOp]}>
@@ -286,8 +282,7 @@ function SendButton({ active, onPress, C }: { active: boolean; onPress: () => vo
   useEffect(() => {
     progress.value = withTiming(active ? 1 : 0, { duration: 300, easing: Easing.out(Easing.quad) });
   }, [active]);
-
-  const wrapStyle  = useAnimatedStyle(() => ({
+  const wrapStyle = useAnimatedStyle(() => ({
     transform: [{ scale: pressScale.value }],
     shadowColor: active ? '#22D3EE' : '#94A3B8', shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.25 + progress.value * 0.55, shadowRadius: 4 + progress.value * 10,
@@ -297,7 +292,6 @@ function SendButton({ active, onPress, C }: { active: boolean; onPress: () => vo
   const cyanOp  = useAnimatedStyle(() => ({ opacity: progress.value }));
   const iconOp  = useAnimatedStyle(() => ({ opacity: 0.55 + progress.value * 0.45 }));
   const SIZE = 38; const BORDER = 1.5;
-
   return (
     <Animated.View style={[{ width: SIZE, height: SIZE }, wrapStyle]}>
       <Animated.View style={[StyleSheet.absoluteFillObject, { borderRadius: SIZE/2, overflow: 'hidden' }, slateOp]}>
@@ -331,7 +325,6 @@ function OptionsMenu({ visible, anchorY, isBlocked, onReport, onBlock, onClear, 
 }) {
   const scale = useRef(new RNAnimated.Value(0)).current;
   const op    = useRef(new RNAnimated.Value(0)).current;
-
   useEffect(() => {
     if (visible) {
       RNAnimated.parallel([
@@ -345,19 +338,16 @@ function OptionsMenu({ visible, anchorY, isBlocked, onReport, onBlock, onClear, 
       ]).start();
     }
   }, [visible]);
-
   if (!visible) return null;
   const items = [
-    { icon: 'flag-outline'   as const, label: 'Denunciar',      color: C.text,   action: onReport },
-    { icon: (isBlocked ? 'lock-open-outline' : 'ban-outline') as any,
-      label: isBlocked ? 'Desbloquear' : 'Bloquear',           color: C.danger, action: onBlock },
-    { icon: 'trash-outline'  as const, label: 'Limpar Conversa', color: C.danger, action: onClear },
+    { icon: 'flag-outline' as const,                                      label: 'Denunciar',       color: C.text,   action: onReport },
+    { icon: (isBlocked ? 'lock-open-outline' : 'ban-outline') as any,    label: isBlocked ? 'Desbloquear' : 'Bloquear', color: C.danger, action: onBlock },
+    { icon: 'trash-outline' as const,                                     label: 'Limpar Conversa', color: C.danger, action: onClear },
   ];
-
   return (
     <View style={StyleSheet.absoluteFillObject} pointerEvents="box-none">
       <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-      <RNAnimated.View style={[{ position: 'absolute', width: 210, borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: C.borderHi, top: anchorY + 8, right: 14, opacity: op, transform: [{ scale }] }]}>
+      <RNAnimated.View style={{ position: 'absolute', width: 210, borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: C.borderHi, top: anchorY + 8, right: 14, opacity: op, transform: [{ scale }] }}>
         <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} />
         <View style={{ backgroundColor: C.bg + 'D0' }}>
           {items.map((item, i) => (
@@ -390,7 +380,6 @@ function ReportModal({ visible, targetName, onSubmit, onClose, C }: {
   const [submitting, setSubmitting]   = useState(false);
   const ty = useRef(new RNAnimated.Value(SH)).current;
   const op = useRef(new RNAnimated.Value(0)).current;
-
   useEffect(() => {
     if (visible) {
       setSelectedReason(null); setDescription('');
@@ -405,7 +394,6 @@ function ReportModal({ visible, targetName, onSubmit, onClose, C }: {
       ]).start();
     }
   }, [visible]);
-
   const pan = useRef(PanResponder.create({
     onStartShouldSetPanResponder: (_, g) => g.dy > 4,
     onMoveShouldSetPanResponder:  (_, g) => g.dy > 4,
@@ -415,9 +403,7 @@ function ReportModal({ visible, targetName, onSubmit, onClose, C }: {
       else RNAnimated.spring(ty, { toValue: 0, useNativeDriver: true, damping: 18, stiffness: 220 }).start();
     },
   })).current;
-
   if (!visible && (ty as any)._value >= SH) return null;
-
   return (
     <View style={StyleSheet.absoluteFillObject} pointerEvents={visible ? 'auto' : 'none'}>
       <RNAnimated.View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.65)', opacity: op }]}>
@@ -425,7 +411,7 @@ function ReportModal({ visible, targetName, onSubmit, onClose, C }: {
       </RNAnimated.View>
       <RNKeyboardAvoidingView style={{ position: 'absolute', left: 0, right: 0, bottom: 0, top: 0, justifyContent: 'flex-end' } as any}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'} pointerEvents="box-none">
-        <RNAnimated.View style={[{ backgroundColor: C.bg, borderTopLeftRadius: 28, borderTopRightRadius: 28, borderTopWidth: 1, borderTopColor: C.borderHi, paddingTop: 8, maxHeight: SH * 0.85, paddingBottom: insets.bottom + 16 }, { transform: [{ translateY: ty }] }]}>
+        <RNAnimated.View style={{ backgroundColor: C.bg, borderTopLeftRadius: 28, borderTopRightRadius: 28, borderTopWidth: 1, borderTopColor: C.borderHi, paddingTop: 8, maxHeight: SH * 0.85, paddingBottom: insets.bottom + 16, transform: [{ translateY: ty }] }}>
           <View {...pan.panHandlers} style={{ alignItems: 'center', paddingVertical: 10 }}>
             <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: C.border }} />
           </View>
@@ -476,7 +462,6 @@ function ReactionsSheet({ visible, msg, isMine, onPick, onDelete, onCopy, onClos
   const insets = useSafeAreaInsets();
   const ty = useRef(new RNAnimated.Value(SH)).current;
   const op = useRef(new RNAnimated.Value(0)).current;
-
   useEffect(() => {
     if (visible) {
       RNAnimated.parallel([
@@ -490,7 +475,6 @@ function ReactionsSheet({ visible, msg, isMine, onPick, onDelete, onCopy, onClos
       ]).start();
     }
   }, [visible]);
-
   const pan = useRef(PanResponder.create({
     onStartShouldSetPanResponder: () => true,
     onMoveShouldSetPanResponder: (_, g) => g.dy > 4,
@@ -500,21 +484,18 @@ function ReactionsSheet({ visible, msg, isMine, onPick, onDelete, onCopy, onClos
       else RNAnimated.spring(ty, { toValue: 0, useNativeDriver: true, damping: 18, stiffness: 220 }).start();
     },
   })).current;
-
-  const myEmoji = msg?.reactions?.find(r => r.userId)?.emoji;
-
   return (
     <View style={StyleSheet.absoluteFillObject} pointerEvents={visible ? 'auto' : 'none'}>
       <RNAnimated.View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.6)', opacity: op }]}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
       </RNAnimated.View>
-      <RNAnimated.View style={[{ position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: C.bg, borderTopLeftRadius: 28, borderTopRightRadius: 28, borderTopWidth: 1, borderTopColor: C.borderHi, paddingTop: 8, paddingBottom: insets.bottom + 12 }, { transform: [{ translateY: ty }] }]}>
+      <RNAnimated.View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: C.bg, borderTopLeftRadius: 28, borderTopRightRadius: 28, borderTopWidth: 1, borderTopColor: C.borderHi, paddingTop: 8, paddingBottom: insets.bottom + 12, transform: [{ translateY: ty }] }}>
         <View {...pan.panHandlers} style={{ alignItems: 'center', paddingVertical: 10 }}>
           <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: C.border }} />
         </View>
         <View style={{ flexDirection: 'row', justifyContent: 'space-around', paddingVertical: 12, paddingHorizontal: 8 }}>
           {REACTIONS.map(e => (
-            <TouchableOpacity key={e} style={[{ width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' }, myEmoji === e && { backgroundColor: C.surfaceHi, borderWidth: 1, borderColor: C.borderHi }]}
+            <TouchableOpacity key={e} style={{ width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' }}
               onPress={() => onPick(e)} activeOpacity={0.7}>
               <Text style={{ fontSize: 26 }}>{e}</Text>
             </TouchableOpacity>
@@ -550,8 +531,8 @@ function TypingBubble({ C }: { C: ChatColors }) {
     return () => anims.forEach(a => a.stop());
   }, []);
   return (
-    <View style={{ flexDirection: 'row', justifyContent: 'flex-start', marginBottom: 2, paddingHorizontal: 14, paddingVertical: 2 }}>
-      <View style={{ flexDirection: 'row', gap: 5, paddingVertical: 14, paddingHorizontal: 14, backgroundColor: C.surfaceHi, borderWidth: 1, borderColor: C.border, borderRadius: 20, borderBottomLeftRadius: 6 }}>
+    <View style={{ flexDirection: 'row', justifyContent: 'flex-start', paddingHorizontal: 14, paddingVertical: 2 }}>
+      <View style={{ flexDirection: 'row', gap: 5, paddingVertical: 14, paddingHorizontal: 14, backgroundColor: C.bubbleOther, borderWidth: 1, borderColor: C.border, borderRadius: 20, borderBottomLeftRadius: 6 }}>
         {dots.map((v, i) => (
           <RNAnimated.View key={i} style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: C.primaryLt, opacity: v }} />
         ))}
@@ -601,19 +582,11 @@ function Bubble({ msg, isMe, onLong, onDouble, highlighted, onImagePress, onReac
   const bgColor = bgOpacity.interpolate({ inputRange: [0, 1], outputRange: ['rgba(34,211,238,0)', C.unread] });
   const reactions = groupReactions(msg.reactions);
 
-  if (msg.isDeleted) return (
-    <RNAnimated.View style={{ flexDirection: 'row', alignItems: 'flex-end', marginBottom: 2, paddingHorizontal: 14, paddingVertical: 2, justifyContent: isMe ? 'flex-end' : 'flex-start', backgroundColor: bgColor }}>
-      <View style={{ paddingHorizontal: 14, paddingVertical: 10, borderRadius: 18, borderWidth: 1, borderColor: C.border, borderStyle: 'dashed' }}>
-        <Text style={{ fontSize: 13, fontStyle: 'italic', color: C.textTer }}>Mensagem apagada</Text>
-      </View>
-    </RNAnimated.View>
-  );
-
   const ReactionBadges = () => reactions.length > 0 ? (
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4, justifyContent: isMe ? 'flex-end' : 'flex-start' }}>
       {reactions.map(g => (
         <TouchableOpacity key={g.emoji}
-          style={{ flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: g.userIds.includes(user?.id ?? '') ? C.surfaceHi + 'AA' : C.surface, borderWidth: 1, borderColor: g.userIds.includes(user?.id ?? '') ? C.primaryLt : C.border, borderRadius: 12, paddingHorizontal: 7, paddingVertical: 4 }}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: g.userIds.includes(user?.id ?? '') ? C.surfaceHi : C.surface, borderWidth: 1, borderColor: g.userIds.includes(user?.id ?? '') ? C.primaryLt : C.border, borderRadius: 12, paddingHorizontal: 7, paddingVertical: 4 }}
           onPress={() => onReact(msg, g.emoji)} activeOpacity={0.7}>
           <Text style={{ fontSize: 13 }}>{g.emoji}</Text>
           {g.count > 1 && <Text style={{ fontSize: 11, fontWeight: '600', color: C.textSec }}>{g.count}</Text>}
@@ -621,6 +594,14 @@ function Bubble({ msg, isMe, onLong, onDouble, highlighted, onImagePress, onReac
       ))}
     </View>
   ) : null;
+
+  if (msg.isDeleted) return (
+    <RNAnimated.View style={{ flexDirection: 'row', alignItems: 'flex-end', marginBottom: 2, paddingHorizontal: 14, paddingVertical: 2, justifyContent: isMe ? 'flex-end' : 'flex-start', backgroundColor: bgColor }}>
+      <View style={{ paddingHorizontal: 14, paddingVertical: 10, borderRadius: 18, borderWidth: 1, borderColor: C.border, borderStyle: 'dashed' }}>
+        <Text style={{ fontSize: 13, fontStyle: 'italic', color: C.textTer }}>Mensagem apagada</Text>
+      </View>
+    </RNAnimated.View>
+  );
 
   // Bolha de imagem
   if (msg.imageUrl) {
@@ -631,28 +612,26 @@ function Bubble({ msg, isMe, onLong, onDouble, highlighted, onImagePress, onReac
         <View style={{ maxWidth: '78%', gap: 3 }}>
           <TouchableOpacity activeOpacity={0.95} delayLongPress={360}
             onPress={() => {
-              const now = Date.now();
-              const diff = now - lastTap.current;
-              lastTap.current = now;
-              if (diff < 300) { onDouble(msg); }
-              else { setTimeout(() => onImagePress(viewerData), 180); }
+              const now = Date.now(); const diff = now - lastTap.current; lastTap.current = now;
+              if (diff < 300) onDouble(msg);
+              else setTimeout(() => onImagePress(viewerData), 180);
             }}
             onLongPress={() => onLong(msg)}
-            style={{ borderRadius: 18, maxWidth: SW * 0.72, backgroundColor: isMe ? C.bubbleMe : C.surfaceHi, borderWidth: isMe ? 0 : StyleSheet.hairlineWidth, borderColor: C.border, ...(isMe ? { borderBottomRightRadius: 4 } : { borderBottomLeftRadius: 4 }) }}>
+            style={{ borderRadius: 18, maxWidth: SW * 0.72, backgroundColor: isMe ? C.bubbleMe : C.bubbleOther, borderWidth: isMe ? 0 : StyleSheet.hairlineWidth, borderColor: C.border, ...(isMe ? { borderBottomRightRadius: 4 } : { borderBottomLeftRadius: 4 }) }}>
             <View style={{ margin: 3, borderRadius: 14, overflow: 'hidden' }}>
               <Image source={{ uri: msg.imageUrl }} style={{ width: SW * 0.72 - 6, height: (SW * 0.72 - 6) * 1.05 }} resizeMode="cover" />
             </View>
             {hasCaption ? (
               <View style={{ paddingHorizontal: 10, paddingTop: 7, paddingBottom: 8 }}>
-                <Text style={{ fontSize: 14, color: C.text, lineHeight: 19, marginBottom: 5 }}>{msg.content}</Text>
+                <Text style={{ fontSize: 14, color: isMe ? '#fff' : C.text, lineHeight: 19, marginBottom: 5 }}>{msg.content}</Text>
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 3 }}>
-                  <Text style={{ fontSize: 10, color: C.textTer }}>{fmtTime(msg.createdAt)}</Text>
+                  <Text style={{ fontSize: 10, color: isMe ? 'rgba(255,255,255,0.7)' : C.textTer }}>{fmtTime(msg.createdAt)}</Text>
                   {isMe && <CheckIcon state={check} />}
                 </View>
               </View>
             ) : (
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', paddingHorizontal: 8, paddingVertical: 5, gap: 3 }}>
-                <Text style={{ fontSize: 10, color: C.textTer }}>{fmtTime(msg.createdAt)}</Text>
+                <Text style={{ fontSize: 10, color: isMe ? 'rgba(255,255,255,0.7)' : C.textTer }}>{fmtTime(msg.createdAt)}</Text>
                 {isMe && <CheckIcon state={check} />}
               </View>
             )}
@@ -672,9 +651,9 @@ function Bubble({ msg, isMe, onLong, onDouble, highlighted, onImagePress, onReac
             {isMe
               ? <LinearGradient colors={[C.bubbleMe, C.bubbleMeLight]} start={{x:0,y:0}} end={{x:1,y:1}}
                   style={{ paddingHorizontal: 14, paddingVertical: 10, borderRadius: 20, borderBottomRightRadius: 6 }}>
-                  <Text style={{ color: '#FFFFFF', fontSize: 15, lineHeight: 21 }}>{msg.content}</Text>
+                  <Text style={{ color: '#fff', fontSize: 15, lineHeight: 21 }}>{msg.content}</Text>
                 </LinearGradient>
-              : <View style={{ paddingHorizontal: 14, paddingVertical: 10, borderRadius: 20, borderBottomLeftRadius: 6, backgroundColor: C.surfaceHi, borderWidth: 1, borderColor: C.border }}>
+              : <View style={{ paddingHorizontal: 14, paddingVertical: 10, borderRadius: 20, borderBottomLeftRadius: 6, backgroundColor: C.bubbleOther, borderWidth: 1, borderColor: C.border }}>
                   <Text style={{ color: C.text, fontSize: 15, lineHeight: 21 }}>{msg.content}</Text>
                 </View>
             }
@@ -698,8 +677,6 @@ export default function ChatScreen({ route, navigation }: any) {
   const { user }          = useAuthStore();
   const { theme, isDark } = useThemeStore();
   const insets            = useSafeAreaInsets();
-
-  // C dinâmico — reconstrói quando o tema muda
   const C = useMemo(() => buildColors(theme, isDark), [theme, isDark]);
 
   const [messages,       setMessages]       = useState<Message[]>([]);
@@ -716,24 +693,27 @@ export default function ChatScreen({ route, navigation }: any) {
   const [reportOpen,     setReportOpen]     = useState(false);
   const [isBlocked,      setIsBlocked]      = useState(false);
   const [blockedIds,     setBlockedIds]     = useState<Set<string>>(new Set());
-  const blockedIdsRef = useRef<Set<string>>(new Set());
+  const blockedIdsRef   = useRef<Set<string>>(new Set());
   const [toastMsg,       setToastMsg]       = useState<{ text: string; type: 'info'|'success'|'error' } | null>(null);
   const [firstUnreadIdx, setFirstUnreadIdx] = useState<number>(-1);
   const [viewerData,     setViewerData]     = useState<ViewerData | null>(null);
   const [isLoadingMore,  setIsLoadingMore]  = useState(false);
 
-  const flatRef       = useRef<FlatList>(null);
-  const typingTimer   = useRef<any>(null);
-  const isTypingRef   = useRef(false);
-  const menuBtnRef    = useRef<View>(null);
-  const toastTimer    = useRef<any>(null);
-  const didInitialScroll = useRef(false);
-  const currentPage   = useRef(1);
-  const hasMorePages  = useRef(true);
-  const loadingMore   = useRef(false);
+  // ── Refs ───────────────────────────────────────────────────────────────
+  const flatRef         = useRef<FlatList>(null);
+  const typingTimer     = useRef<any>(null);
+  const isTypingRef     = useRef(false);
+  const menuBtnRef      = useRef<View>(null);
+  const toastTimer      = useRef<any>(null);
+  const currentPage     = useRef(1);
+  const hasMorePages    = useRef(true);
+  const loadingMore     = useRef(false);
+  // Scroll inicial: guardamos o índice alvo calculado no loadMessages
+  // para usá-lo no onLayout do FlatList (quando os itens já estão renderizados)
+  const initialScrollTarget = useRef<number | 'end'>('end');
+  const didInitialScroll    = useRef(false);
 
   const hasContent = input.trim().length > 0 || selectedImage !== null;
-
   const DRAFT_KEY             = `@venus:draft:${conversation.id}`;
   const BLOCKED_MSGS_KEY      = `@venus:blocked_msgs:${conversation.id}`;
   const BLOCKED_REACTIONS_KEY = `@venus:blocked_reactions:${conversation.id}`;
@@ -784,9 +764,12 @@ export default function ChatScreen({ route, navigation }: any) {
 
   // ── Carregar mensagens ─────────────────────────────────────────────────
   const loadMessages = useCallback(async () => {
-    currentPage.current  = 1;
-    hasMorePages.current = true;
-    loadingMore.current  = false;
+    currentPage.current       = 1;
+    hasMorePages.current      = true;
+    loadingMore.current       = false;
+    didInitialScroll.current  = false;
+    initialScrollTarget.current = 'end';
+
     try {
       const { data } = await api.get(`/messages/conversations/${conversation.id}`);
       const msgs: Message[] = (data.messages || data || []).map((m: any) => ({
@@ -795,29 +778,28 @@ export default function ChatScreen({ route, navigation }: any) {
         reactions: Array.isArray(m.reactions) ? m.reactions : (m.reaction ? [{ emoji: m.reaction, userId: m.senderId }] : null),
       }));
 
-      // Mesclar msgs bloqueadas do AsyncStorage
+      // Mesclar mensagens bloqueadas
+      let finalMsgs = msgs;
       try {
         const raw = await AsyncStorage.getItem(BLOCKED_MSGS_KEY);
         const blockedMsgs: Message[] = raw ? JSON.parse(raw) : [];
         if (blockedMsgs.length > 0) {
           const bankIds = new Set(msgs.map(m => m.id));
           const stillBlocked = blockedMsgs.filter(m => !bankIds.has(m.id));
-          const merged = [...msgs, ...stillBlocked].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-          setMessages(merged);
+          finalMsgs = [...msgs, ...stillBlocked].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
           if (stillBlocked.length !== blockedMsgs.length)
             await AsyncStorage.setItem(BLOCKED_MSGS_KEY, JSON.stringify(stillBlocked));
-        } else { setMessages(msgs); }
-      } catch { setMessages(msgs); }
+        }
+      } catch {}
+
+      setMessages(finalMsgs);
 
       // Reações bloqueadas
       try {
         const rawR = await AsyncStorage.getItem(BLOCKED_REACTIONS_KEY);
         if (rawR) {
-          const blockedReactions: Record<string, MessageReaction[]> = JSON.parse(rawR);
-          setMessages(prev => prev.map(m => {
-            const saved = blockedReactions[m.id];
-            return saved ? { ...m, reactions: saved } : m;
-          }));
+          const br: Record<string, MessageReaction[]> = JSON.parse(rawR);
+          setMessages(prev => prev.map(m => br[m.id] ? { ...m, reactions: br[m.id] } : m));
         }
       } catch {}
 
@@ -834,16 +816,19 @@ export default function ChatScreen({ route, navigation }: any) {
       } else {
         firstUnread = msgs.findIndex(m => !m.isRead && m.senderId !== user?.id);
       }
+
       setFirstUnreadIdx(firstUnread);
+      // Guardar o alvo de scroll para o onLayout
+      initialScrollTarget.current = firstUnread >= 0 && firstUnread < finalMsgs.length
+        ? firstUnread
+        : 'end';
 
       if (msgs.length > 0)
         AsyncStorage.setItem(LAST_SEEN_KEY, msgs[msgs.length - 1].id).catch(() => {});
 
-      didInitialScroll.current = false;
     } catch {}
     finally { setLoading(false); }
   }, [conversation.id, user?.id, LAST_SEEN_KEY, BLOCKED_MSGS_KEY, BLOCKED_REACTIONS_KEY]);
-
 
   // ── Paginação ──────────────────────────────────────────────────────────
   const loadMoreMessages = useCallback(async () => {
@@ -855,10 +840,11 @@ export default function ChatScreen({ route, navigation }: any) {
       const older: Message[] = (data.messages || data || []).map((m: any) => ({
         ...m, isRead: m.isRead ?? false, deliveredAt: m.deliveredAt ?? null,
         imageUrl: m.imageUrl ?? null,
-        reactions: Array.isArray(m.reactions) ? m.reactions : (m.reaction ? [{ emoji: m.reaction, userId: m.senderId }] : null),
+        reactions: Array.isArray(m.reactions) ? m.reactions : null,
       }));
-      if (older.length === 0) { hasMorePages.current = false; }
-      else {
+      if (older.length === 0) {
+        hasMorePages.current = false;
+      } else {
         currentPage.current = nextPage;
         setMessages(prev => {
           const existingIds = new Set(prev.map(m => m.id));
@@ -886,7 +872,11 @@ export default function ChatScreen({ route, navigation }: any) {
 
     const unsubMsg = socketService.onNewMessage((msg: any) => {
       if (blockedIdsRef.current.has(msg.senderId)) return;
-      setMessages(prev => [...prev, { ...msg, isRead: false, deliveredAt: msg.deliveredAt ?? null, imageUrl: msg.imageUrl ?? null, reactions: Array.isArray(msg.reactions) ? msg.reactions : null }]);
+      setMessages(prev => [...prev, {
+        ...msg, isRead: false, deliveredAt: msg.deliveredAt ?? null,
+        imageUrl: msg.imageUrl ?? null,
+        reactions: Array.isArray(msg.reactions) ? msg.reactions : null,
+      }]);
       AsyncStorage.setItem(LAST_SEEN_KEY, msg.id).catch(() => {});
       setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 80);
     });
@@ -897,7 +887,9 @@ export default function ChatScreen({ route, navigation }: any) {
     });
     socket.on('messages_read', ({ conversationId: cId }: any) => {
       if (cId !== conversation.id) return;
-      setMessages(prev => prev.map(m => m.senderId === user?.id ? { ...m, isRead: true, deliveredAt: m.deliveredAt ?? new Date().toISOString() } : m));
+      setMessages(prev => prev.map(m => m.senderId === user?.id
+        ? { ...m, isRead: true, deliveredAt: m.deliveredAt ?? new Date().toISOString() }
+        : m));
     });
     socket.on('message_reaction', ({ messageId, emoji, senderId: reactSenderId }: any) => {
       if (reactSenderId && blockedIdsRef.current.has(reactSenderId)) return;
@@ -909,9 +901,10 @@ export default function ChatScreen({ route, navigation }: any) {
       }));
     });
     socket.on('message_deleted', ({ messageId }: any) => {
-      setMessages(prev => prev.map(m => m.id === messageId ? { ...m, isDeleted: true, content: '', imageUrl: null } : m));
+      setMessages(prev => prev.map(m => m.id === messageId
+        ? { ...m, isDeleted: true, content: '', imageUrl: null } : m));
     });
-    socket.on('message_blocked', async () => {
+    socket.on('message_blocked', () => {
       setMessages(prev => {
         const temps = prev.filter(m => m.id.startsWith('temp-'));
         if (temps.length > 0) {
@@ -919,20 +912,23 @@ export default function ChatScreen({ route, navigation }: any) {
             const existing: Message[] = raw ? JSON.parse(raw) : [];
             const existingIds = new Set(existing.map(m => m.id));
             const toAdd = temps.filter(m => !existingIds.has(m.id));
-            if (toAdd.length > 0) AsyncStorage.setItem(BLOCKED_MSGS_KEY, JSON.stringify([...existing, ...toAdd])).catch(() => {});
+            if (toAdd.length > 0)
+              AsyncStorage.setItem(BLOCKED_MSGS_KEY, JSON.stringify([...existing, ...toAdd])).catch(() => {});
           }).catch(() => {});
         }
         return prev;
       });
     });
-    const onPresence = ({ userId, status }: any) => { if (userId === other?.id) setOtherPresence(status); };
+    const onPresence = ({ userId, status }: any) => {
+      if (userId === other?.id) setOtherPresence(status);
+    };
     socket.on('presence:update', onPresence);
 
     return () => {
       socket.emit('leave_conversation', { conversationId: conversation.id });
       unsubMsg();
-      socket.off('user_typing'); socket.off('message_delivered'); socket.off('messages_read');
-      socket.off('message_reaction'); socket.off('message_deleted'); socket.off('message_blocked');
+      ['user_typing','message_delivered','messages_read','message_reaction',
+       'message_deleted','message_blocked'].forEach(e => socket.off(e));
       socket.off('presence:update', onPresence);
     };
   }, [conversation.id, loadMessages, other?.id, user?.id, LAST_SEEN_KEY, blockedIds]);
@@ -944,7 +940,10 @@ export default function ChatScreen({ route, navigation }: any) {
     setInput(''); AsyncStorage.removeItem(DRAFT_KEY).catch(() => {});
     const imageToSend = selectedImage; setSelectedImage(null);
     const tempId = `temp-${Date.now()}`;
-    const temp: Message = { id: tempId, senderId: user?.id || '', content, imageUrl: imageToSend, createdAt: new Date().toISOString(), isRead: false, deliveredAt: null };
+    const temp: Message = {
+      id: tempId, senderId: user?.id || '', content, imageUrl: imageToSend,
+      createdAt: new Date().toISOString(), isRead: false, deliveredAt: null,
+    };
     setMessages(prev => [...prev, temp]);
     setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 60);
 
@@ -968,7 +967,9 @@ export default function ChatScreen({ route, navigation }: any) {
     } else {
       try {
         const { data } = await api.post(`/messages/conversations/${conversation.id}`, { content, imageUrl: finalImageUrl });
-        setMessages(prev => prev.map(m => m.id === tempId ? { ...data, isRead: false, deliveredAt: data.deliveredAt ?? null, imageUrl: data.imageUrl ?? finalImageUrl } : m));
+        setMessages(prev => prev.map(m => m.id === tempId
+          ? { ...data, isRead: false, deliveredAt: data.deliveredAt ?? null, imageUrl: data.imageUrl ?? finalImageUrl }
+          : m));
       } catch (e: any) {
         if (e?.response?.status === 403) {
           setMessages(prev => {
@@ -978,12 +979,15 @@ export default function ChatScreen({ route, navigation }: any) {
                 const existing: Message[] = raw ? JSON.parse(raw) : [];
                 const existingIds = new Set(existing.map(m => m.id));
                 const toAdd = temps.filter(m => !existingIds.has(m.id));
-                if (toAdd.length > 0) AsyncStorage.setItem(BLOCKED_MSGS_KEY, JSON.stringify([...existing, ...toAdd])).catch(() => {});
+                if (toAdd.length > 0)
+                  AsyncStorage.setItem(BLOCKED_MSGS_KEY, JSON.stringify([...existing, ...toAdd])).catch(() => {});
               }).catch(() => {});
             }
             return prev;
           });
-        } else { setMessages(prev => prev.filter(m => m.id !== tempId)); }
+        } else {
+          setMessages(prev => prev.filter(m => m.id !== tempId));
+        }
       }
     }
   }, [input, selectedImage, isBlocked, conversation.id, user?.id, DRAFT_KEY, BLOCKED_MSGS_KEY, showToast]);
@@ -1015,10 +1019,11 @@ export default function ChatScreen({ route, navigation }: any) {
   }, [isBlocked, showToast]);
 
   const openMenu = () => {
-    menuBtnRef.current?.measure((_x, _y, _w, h, _px, py) => { setMenuAnchorY(py + h); setMenuOpen(true); });
+    menuBtnRef.current?.measure((_x, _y, _w, h, _px, py) => {
+      setMenuAnchorY(py + h); setMenuOpen(true);
+    });
   };
 
-  // ── Block ──────────────────────────────────────────────────────────────
   const handleBlock = useCallback(() => {
     const name = other?.displayName || other?.username;
     if (isBlocked) {
@@ -1042,13 +1047,15 @@ export default function ChatScreen({ route, navigation }: any) {
             setIsBlocked(true);
             setBlockedIds(prev => new Set([...prev, other.id]));
             showToast(`${name} bloqueado`, 'success');
-          } catch (e: any) { if (e?.response?.status === 409) setIsBlocked(true); else showToast('Erro', 'error'); }
+          } catch (e: any) {
+            if (e?.response?.status === 409) setIsBlocked(true);
+            else showToast('Erro', 'error');
+          }
         }},
       ]);
     }
   }, [isBlocked, other, showToast]);
 
-  // ── Report ─────────────────────────────────────────────────────────────
   const submitReport = useCallback(async (reason: ReportReason, description: string) => {
     try {
       await api.post(`/reports/user/${other.id}`, { reason, description: description || undefined });
@@ -1056,7 +1063,6 @@ export default function ChatScreen({ route, navigation }: any) {
     } catch { showToast('Erro ao enviar denúncia', 'error'); }
   }, [other?.id, showToast]);
 
-  // ── Clear ──────────────────────────────────────────────────────────────
   const handleClearChat = useCallback(() => {
     Alert.alert('Limpar conversa', 'As mensagens serão removidas para você.', [
       { text: 'Cancelar', style: 'cancel' },
@@ -1070,14 +1076,12 @@ export default function ChatScreen({ route, navigation }: any) {
     ]);
   }, [conversation.id, showToast, LAST_SEEN_KEY]);
 
-  // ── Long press ─────────────────────────────────────────────────────────
   const handleLong = useCallback((msg: Message) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     Keyboard.dismiss();
     setTimeout(() => { setSelectedMsg(msg); setSheetOpen(true); }, 100);
   }, []);
 
-  // ── Double tap ─────────────────────────────────────────────────────────
   const handleDouble = useCallback((msg: Message) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     if (msg.id.startsWith('temp-')) return;
@@ -1092,7 +1096,10 @@ export default function ChatScreen({ route, navigation }: any) {
     api.patch(`/messages/${msg.id}/reaction`, { emoji: isToggleOff ? null : '❤️' })
       .then(({ data }) => {
         setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, reactions: data.reactions ?? null } : m));
-        socketService.getSocket()?.emit('message_reaction', { conversationId: conversation.id, messageId: msg.id, emoji: isToggleOff ? null : '❤️', senderId: user?.id });
+        socketService.getSocket()?.emit('message_reaction', {
+          conversationId: conversation.id, messageId: msg.id,
+          emoji: isToggleOff ? null : '❤️', senderId: user?.id,
+        });
       })
       .catch((e: any) => {
         if (e?.response?.status !== 403)
@@ -1100,9 +1107,10 @@ export default function ChatScreen({ route, navigation }: any) {
       });
   }, [user?.id, conversation.id]);
 
-  const closeSheet = useCallback(() => { setSheetOpen(false); setTimeout(() => setSelectedMsg(null), 300); }, []);
+  const closeSheet = useCallback(() => {
+    setSheetOpen(false); setTimeout(() => setSelectedMsg(null), 300);
+  }, []);
 
-  // ── Reação via sheet ───────────────────────────────────────────────────
   const applyReactionDirect = useCallback((msg: Message, emoji: string) => {
     if (msg.id.startsWith('temp-')) return;
     const myReaction  = (msg.reactions ?? []).find(r => r.userId === user?.id);
@@ -1116,7 +1124,10 @@ export default function ChatScreen({ route, navigation }: any) {
     api.patch(`/messages/${msg.id}/reaction`, { emoji: isToggleOff ? null : emoji })
       .then(({ data }) => {
         setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, reactions: data.reactions ?? null } : m));
-        socketService.getSocket()?.emit('message_reaction', { conversationId: conversation.id, messageId: msg.id, emoji: isToggleOff ? null : emoji, senderId: user?.id });
+        socketService.getSocket()?.emit('message_reaction', {
+          conversationId: conversation.id, messageId: msg.id,
+          emoji: isToggleOff ? null : emoji, senderId: user?.id,
+        });
       })
       .catch((e: any) => {
         if (e?.response?.status === 403) {
@@ -1148,13 +1159,15 @@ export default function ChatScreen({ route, navigation }: any) {
     closeSheet(); showToast('Copiado', 'success', 1500);
   }, [selectedMsg, closeSheet, showToast]);
 
-  // ── Delete ─────────────────────────────────────────────────────────────
   const deleteMsg = useCallback(async (msgId: string) => {
-    setMessages(prev => prev.map(m => m.id === msgId ? { ...m, isDeleted: true, content: '', imageUrl: null } : m));
+    setMessages(prev => prev.map(m => m.id === msgId
+      ? { ...m, isDeleted: true, content: '', imageUrl: null } : m));
     if (msgId.startsWith('temp-')) return;
     try {
       await api.delete(`/messages/${msgId}`);
-      socketService.getSocket()?.emit('delete_message', { conversationId: conversation.id, messageId: msgId });
+      socketService.getSocket()?.emit('delete_message', {
+        conversationId: conversation.id, messageId: msgId,
+      });
     } catch {
       setMessages(prev => prev.map(m => m.id === msgId ? { ...m, isDeleted: false } : m));
       showToast('Erro ao apagar mensagem', 'error');
@@ -1172,13 +1185,15 @@ export default function ChatScreen({ route, navigation }: any) {
           { text: 'Apagar', style: 'destructive', onPress: () => deleteMsg(msgId) },
         ]);
       }, 300);
-    } else { closeSheet(); deleteMsg(msgId); }
+    } else {
+      closeSheet(); deleteMsg(msgId);
+    }
   }, [selectedMsg, closeSheet, deleteMsg]);
 
   // ── Render ─────────────────────────────────────────────────────────────
   const isMe = (msg: Message) => msg.senderId === user?.id;
 
-  const unreadHeaderOp = useRef(new RNAnimated.Value(firstUnreadIdx >= 0 ? 1 : 0)).current;
+  const unreadHeaderOp = useRef(new RNAnimated.Value(0)).current;
   useEffect(() => {
     if (firstUnreadIdx < 0) { unreadHeaderOp.setValue(0); return; }
     unreadHeaderOp.setValue(1);
@@ -1227,6 +1242,24 @@ export default function ChatScreen({ route, navigation }: any) {
     return <Text style={{ fontSize: 12, color: C.textSec, marginTop: 2 }}>@{other?.username}</Text>;
   }, [otherTyping, otherPresence, other?.username, C]);
 
+  // ── Scroll inicial via onLayout ────────────────────────────────────────
+  // onLayout dispara depois que o FlatList e seus itens estão renderizados.
+  // Usamos o alvo calculado no loadMessages (guardado em initialScrollTarget).
+  const handleFlatListLayout = useCallback(() => {
+    if (didInitialScroll.current) return;
+    const target = initialScrollTarget.current;
+    if (target === 'end') {
+      flatRef.current?.scrollToEnd({ animated: false });
+    } else {
+      try {
+        flatRef.current?.scrollToIndex({ index: target, animated: false, viewPosition: 0.1 });
+      } catch {
+        flatRef.current?.scrollToEnd({ animated: false });
+      }
+    }
+    didInitialScroll.current = true;
+  }, []);
+
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} translucent backgroundColor="transparent" />
@@ -1270,6 +1303,7 @@ export default function ChatScreen({ route, navigation }: any) {
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
+            onLayout={handleFlatListLayout}
             onScroll={({ nativeEvent }) => {
               if (nativeEvent.contentOffset.y < 80) loadMoreMessages();
             }}
@@ -1285,21 +1319,11 @@ export default function ChatScreen({ route, navigation }: any) {
                 </View>
               ) : null
             }
-            initialScrollIndex={
-              firstUnreadIdx >= 0 && firstUnreadIdx < messages.length
-                ? firstUnreadIdx
-                : messages.length > 0 ? messages.length - 1 : undefined
-            }
-            getItemLayout={(_data, index) => ({
-              length: 72,
-              offset: 72 * index,
-              index,
-            })}
             onScrollToIndexFailed={({ index }) => {
               setTimeout(() => {
-                try { flatRef.current?.scrollToIndex({ index, animated: false, viewPosition: 0.15 }); }
+                try { flatRef.current?.scrollToIndex({ index, animated: false, viewPosition: 0.1 }); }
                 catch { flatRef.current?.scrollToEnd({ animated: false }); }
-              }, 300);
+              }, 200);
             }}
             ListEmptyComponent={
               <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 40, gap: 12 }}>
@@ -1326,7 +1350,7 @@ export default function ChatScreen({ route, navigation }: any) {
                 <View style={{ marginBottom: 8, borderRadius: 14, overflow: 'hidden', alignSelf: 'flex-start' }}>
                   <Image source={{ uri: selectedImage }} style={{ width: 120, height: 120 }} resizeMode="cover" />
                   <TouchableOpacity style={{ position: 'absolute', top: 6, right: 6, width: 24, height: 24, borderRadius: 12, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }}
-                    onPress={() => setSelectedImage(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                    onPress={() => setSelectedImage(null)}>
                     <BlurView intensity={60} tint="dark" style={StyleSheet.absoluteFill} />
                     <Ionicons name="close" size={14} color={C.text} />
                   </TouchableOpacity>
