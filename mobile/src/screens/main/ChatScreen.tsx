@@ -770,6 +770,7 @@ export default function ChatScreen({ route, navigation }: any) {
     didInitialScroll.current    = false;
     initialScrollTarget.current = 'end';
     setMessages([]); // limpar estado antes de carregar
+    setMessages([]); // limpar estado antes de carregar
 
     try {
       const { data } = await api.get(`/messages/conversations/${conversation.id}`);
@@ -932,7 +933,7 @@ export default function ChatScreen({ route, navigation }: any) {
        'message_deleted','message_blocked'].forEach(e => socket.off(e));
       socket.off('presence:update', onPresence);
     };
-  }, [conversation.id, loadMessages, other?.id, user?.id, LAST_SEEN_KEY, blockedIds]);
+  }, [conversation.id, loadMessages, other?.id, user?.id, LAST_SEEN_KEY]);
 
   // ── Enviar ─────────────────────────────────────────────────────────────
   const handleSend = useCallback(async () => {
@@ -1306,21 +1307,25 @@ export default function ChatScreen({ route, navigation }: any) {
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
 
-            onScroll={({ nativeEvent }) => {
-              // Só paginar após o scroll inicial ter acontecido
-              if (didInitialScroll.current && nativeEvent.contentOffset.y < 80) loadMoreMessages();
-            }}
             scrollEventThrottle={200}
             ListHeaderComponent={
               isLoadingMore ? (
                 <View style={{ alignItems: 'center', paddingVertical: 12 }}>
                   <Text style={{ color: C.textTer, fontSize: 12 }}>Carregando...</Text>
                 </View>
-              ) : !hasMorePages.current ? (
+              ) : hasMorePages.current ? (
+                <TouchableOpacity
+                  style={{ alignItems: 'center', paddingVertical: 12 }}
+                  onPress={loadMoreMessages}
+                  activeOpacity={0.7}
+                >
+                  <Text style={{ color: C.primaryLt, fontSize: 12, fontWeight: '600' }}>↑ Carregar mensagens anteriores</Text>
+                </TouchableOpacity>
+              ) : (
                 <View style={{ alignItems: 'center', paddingVertical: 12 }}>
                   <Text style={{ color: C.textTer, fontSize: 12 }}>Início da conversa</Text>
                 </View>
-              ) : null
+              )
             }
             onScrollToIndexFailed={({ index }) => {
               setTimeout(() => {
