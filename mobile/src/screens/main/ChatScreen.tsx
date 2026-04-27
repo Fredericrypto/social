@@ -764,11 +764,12 @@ export default function ChatScreen({ route, navigation }: any) {
 
   // ── Carregar mensagens ─────────────────────────────────────────────────
   const loadMessages = useCallback(async () => {
-    currentPage.current       = 1;
-    hasMorePages.current      = true;
-    loadingMore.current       = false;
-    didInitialScroll.current  = false;
+    currentPage.current         = 1;
+    hasMorePages.current        = true;
+    loadingMore.current         = false;
+    didInitialScroll.current    = false;
     initialScrollTarget.current = 'end';
+    setMessages([]); // limpar estado antes de carregar
 
     try {
       const { data } = await api.get(`/messages/conversations/${conversation.id}`);
