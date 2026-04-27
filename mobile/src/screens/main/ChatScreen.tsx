@@ -46,7 +46,7 @@ export interface ChatColors {
   border: string; borderHi: string;
   text: string; textSec: string; textTer: string; primaryLt: string;
   cyan: string; danger: string; success: string;
-  bubble1: string; bubble2: string; unread: string;
+  bubble1: string; bubble2: string; bubbleMe: string; bubbleMeLight: string; unread: string;
 }
 
 function buildColors(theme: any, isDark: boolean): ChatColors {
@@ -63,9 +63,11 @@ function buildColors(theme: any, isDark: boolean): ChatColors {
     cyan:      '#22D3EE',
     danger:    '#F87171',
     success:   '#4ADE80',
-    // Bolhas usam surface/surfaceHigh da paleta — assim obedecem o tema
+    // Bolhas: meu balão usa primary da paleta, outro usa surface/surfaceHigh
     bubble1:   theme.surfaceHigh,
     bubble2:   theme.surface,
+    bubbleMe:      theme.primary,
+    bubbleMeLight: theme.primaryLight ?? theme.primary,
     unread:    'rgba(34,211,238,0.08)',
   };
 }
@@ -636,7 +638,7 @@ function Bubble({ msg, isMe, onLong, onDouble, highlighted, onImagePress, onReac
               else { setTimeout(() => onImagePress(viewerData), 180); }
             }}
             onLongPress={() => onLong(msg)}
-            style={{ borderRadius: 18, maxWidth: SW * 0.72, backgroundColor: isMe ? C.bubble1 : C.surfaceHi, borderWidth: isMe ? 0 : StyleSheet.hairlineWidth, borderColor: C.border, ...(isMe ? { borderBottomRightRadius: 4 } : { borderBottomLeftRadius: 4 }) }}>
+            style={{ borderRadius: 18, maxWidth: SW * 0.72, backgroundColor: isMe ? C.bubbleMe : C.surfaceHi, borderWidth: isMe ? 0 : StyleSheet.hairlineWidth, borderColor: C.border, ...(isMe ? { borderBottomRightRadius: 4 } : { borderBottomLeftRadius: 4 }) }}>
             <View style={{ margin: 3, borderRadius: 14, overflow: 'hidden' }}>
               <Image source={{ uri: msg.imageUrl }} style={{ width: SW * 0.72 - 6, height: (SW * 0.72 - 6) * 1.05 }} resizeMode="cover" />
             </View>
@@ -668,9 +670,9 @@ function Bubble({ msg, isMe, onLong, onDouble, highlighted, onImagePress, onReac
         <RNAnimated.View style={{ transform: [{ scale }] }}>
           <TouchableOpacity onPress={handleTap} onLongPress={() => onLong(msg)} activeOpacity={0.85} delayLongPress={360}>
             {isMe
-              ? <LinearGradient colors={[C.bubble1, C.bubble2]} start={{x:0,y:0}} end={{x:1,y:1}}
+              ? <LinearGradient colors={[C.bubbleMe, C.bubbleMeLight]} start={{x:0,y:0}} end={{x:1,y:1}}
                   style={{ paddingHorizontal: 14, paddingVertical: 10, borderRadius: 20, borderBottomRightRadius: 6 }}>
-                  <Text style={{ color: C.text, fontSize: 15, lineHeight: 21 }}>{msg.content}</Text>
+                  <Text style={{ color: '#FFFFFF', fontSize: 15, lineHeight: 21 }}>{msg.content}</Text>
                 </LinearGradient>
               : <View style={{ paddingHorizontal: 14, paddingVertical: 10, borderRadius: 20, borderBottomLeftRadius: 6, backgroundColor: C.surfaceHi, borderWidth: 1, borderColor: C.border }}>
                   <Text style={{ color: C.text, fontSize: 15, lineHeight: 21 }}>{msg.content}</Text>
@@ -725,8 +727,9 @@ export default function ChatScreen({ route, navigation }: any) {
   const isTypingRef   = useRef(false);
   const menuBtnRef    = useRef<View>(null);
   const toastTimer    = useRef<any>(null);
-  const scrolledOnce  = useRef(false);
-  const scrollPending = useRef(false);
+  const scrolledOnce      = useRef(false);
+  const scrollPending     = useRef(false);
+  const pendingScrollIdx  = useRef<number>(-2);
   const currentPage   = useRef(1);
   const hasMorePages  = useRef(true);
   const loadingMore   = useRef(false);
@@ -849,7 +852,6 @@ export default function ChatScreen({ route, navigation }: any) {
   // ── Scroll inicial após render ─────────────────────────────────────────
   // Guardamos o firstUnreadIdx calculado junto com as mensagens para evitar
   // race condition entre setMessages e setFirstUnreadIdx (são renders separados)
-  const pendingScrollIdx = useRef<number>(-2); // -2 = não inicializado
 
   useEffect(() => {
     if (!scrollPending.current || messages.length === 0) return;
