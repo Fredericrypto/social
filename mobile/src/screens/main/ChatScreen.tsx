@@ -727,9 +727,7 @@ export default function ChatScreen({ route, navigation }: any) {
   const isTypingRef   = useRef(false);
   const menuBtnRef    = useRef<View>(null);
   const toastTimer    = useRef<any>(null);
-  const scrolledOnce      = useRef(false);
-  const scrollPending     = useRef(false);
-  const pendingScrollIdx  = useRef<number>(-2);
+  const didInitialScroll = useRef(false);
   const currentPage   = useRef(1);
   const hasMorePages  = useRef(true);
   const loadingMore   = useRef(false);
@@ -837,38 +835,15 @@ export default function ChatScreen({ route, navigation }: any) {
         firstUnread = msgs.findIndex(m => !m.isRead && m.senderId !== user?.id);
       }
       setFirstUnreadIdx(firstUnread);
-      // Registrar o índice para o scroll inicial — evita race condition
-      pendingScrollIdx.current = firstUnread;
 
       if (msgs.length > 0)
         AsyncStorage.setItem(LAST_SEEN_KEY, msgs[msgs.length - 1].id).catch(() => {});
 
-      scrolledOnce.current  = false;
-      scrollPending.current = true;
+      didInitialScroll.current = false;
     } catch {}
     finally { setLoading(false); }
   }, [conversation.id, user?.id, LAST_SEEN_KEY, BLOCKED_MSGS_KEY, BLOCKED_REACTIONS_KEY]);
 
-  // ── Scroll inicial após render ─────────────────────────────────────────
-  // Guardamos o firstUnreadIdx calculado junto com as mensagens para evitar
-  // race condition entre setMessages e setFirstUnreadIdx (são renders separados)
-
-  useEffect(() => {
-    if (!scrollPending.current || messages.length === 0) return;
-    // Só executa quando firstUnreadIdx foi calculado na mesma rodada (não é -2)
-    if (pendingScrollIdx.current === -2) return;
-    scrollPending.current = false;
-    const idx = pendingScrollIdx.current;
-    pendingScrollIdx.current = -2;
-    setTimeout(() => {
-      if (idx >= 0 && idx < messages.length) {
-        try { flatRef.current?.scrollToIndex({ index: idx, animated: false, viewPosition: 0.15 }); }
-        catch { flatRef.current?.scrollToEnd({ animated: false }); }
-      } else {
-        flatRef.current?.scrollToEnd({ animated: false });
-      }
-    }, 50);
-  }, [messages, firstUnreadIdx]);
 
   // ── Paginação ──────────────────────────────────────────────────────────
   const loadMoreMessages = useCallback(async () => {
@@ -1310,7 +1285,19 @@ export default function ChatScreen({ route, navigation }: any) {
                 </View>
               ) : null
             }
-            onContentSizeChange={() => {}}
+            onLayout={() => {
+              if (didInitialScroll.current) return;
+              didInitialScroll.current = true;
+              if (firstUnreadIdx >= 0 && firstUnreadIdx < messages.length) {
+                try {
+                  flatRef.current?.scrollToIndex({ index: firstUnreadIdx, animated: false, viewPosition: 0.1 });
+                } catch {
+                  flatRef.current?.scrollToEnd({ animated: false });
+                }
+              } else {
+                flatRef.current?.scrollToEnd({ animated: false });
+              }
+            }}
             onScrollToIndexFailed={({ index }) => {
               setTimeout(() => {
                 try { flatRef.current?.scrollToIndex({ index, animated: false, viewPosition: 0.15 }); }
