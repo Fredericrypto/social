@@ -63,8 +63,9 @@ function buildColors(theme: any, isDark: boolean): ChatColors {
     cyan:      '#22D3EE',
     danger:    '#F87171',
     success:   '#4ADE80',
-    bubble1:   isDark ? '#1E293B' : '#E2E8F0',
-    bubble2:   isDark ? '#334155' : '#CBD5E1',
+    // Bolhas usam surface/surfaceHigh da paleta — assim obedecem o tema
+    bubble1:   theme.surfaceHigh,
+    bubble2:   theme.surface,
     unread:    'rgba(34,211,238,0.08)',
   };
 }
@@ -123,8 +124,9 @@ function newDay(msgs: Message[], i: number) {
 }
 
 // ─── CheckIcon ────────────────────────────────────────────────────────────────
-function CheckIcon({ state, C }: { state: CheckState; C: ChatColors }) {
-  const color = state === 'read' ? C.cyan : C.primaryLt;
+function CheckIcon({ state }: { state: CheckState; C?: ChatColors }) {
+  // Cyan = lido, Slate = entregue/enviado — fixo, independente do tema
+  const color = state === 'read' ? '#22D3EE' : '#94A3B8';
   return <Ionicons name={state !== 'sent' ? 'checkmark-done' : 'checkmark'} size={12} color={color} />;
 }
 
@@ -643,13 +645,13 @@ function Bubble({ msg, isMe, onLong, onDouble, highlighted, onImagePress, onReac
                 <Text style={{ fontSize: 14, color: C.text, lineHeight: 19, marginBottom: 5 }}>{msg.content}</Text>
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 3 }}>
                   <Text style={{ fontSize: 10, color: C.textTer }}>{fmtTime(msg.createdAt)}</Text>
-                  {isMe && <CheckIcon state={check} C={C} />}
+                  {isMe && <CheckIcon state={check} />}
                 </View>
               </View>
             ) : (
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', paddingHorizontal: 8, paddingVertical: 5, gap: 3 }}>
                 <Text style={{ fontSize: 10, color: C.textTer }}>{fmtTime(msg.createdAt)}</Text>
-                {isMe && <CheckIcon state={check} C={C} />}
+                {isMe && <CheckIcon state={check} />}
               </View>
             )}
           </TouchableOpacity>
@@ -679,7 +681,7 @@ function Bubble({ msg, isMe, onLong, onDouble, highlighted, onImagePress, onReac
         <ReactionBadges />
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 1, justifyContent: isMe ? 'flex-end' : 'flex-start' }}>
           <Text style={{ fontSize: 10, color: C.textTer }}>{fmtTime(msg.createdAt)}</Text>
-          {isMe && <CheckIcon state={check} C={C} />}
+          {isMe && <CheckIcon state={check} />}
         </View>
       </View>
     </RNAnimated.View>
