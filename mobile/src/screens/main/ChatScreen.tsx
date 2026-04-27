@@ -1673,15 +1673,34 @@ export default function ChatScreen({ route, navigation }: any) {
               ) : null
             }
             onContentSizeChange={() => {
-              // Scroll inicial garantido quando o conteúdo renderiza
+              // Scroll inicial — uma única vez ao abrir
               if (!scrolledOnce.current) {
                 scrolledOnce.current = true;
-                flatRef.current?.scrollToEnd({ animated: false });
+                if (firstUnreadIdx >= 0) {
+                  // Tem não lidas → scroll para a primeira não lida (comportamento WhatsApp)
+                  try {
+                    flatRef.current?.scrollToIndex({
+                      index: firstUnreadIdx,
+                      animated: false,
+                      viewPosition: 0.15,
+                    });
+                  } catch {
+                    flatRef.current?.scrollToEnd({ animated: false });
+                  }
+                } else {
+                  // Sem não lidas → scroll instantâneo para o fim
+                  flatRef.current?.scrollToEnd({ animated: false });
+                }
               }
             }}
             onScrollToIndexFailed={({ index }) => {
+              // Item ainda não renderizado — tentar novamente após layout
               setTimeout(() => {
-                flatRef.current?.scrollToIndex({ index, animated: false, viewPosition: 0.2 });
+                try {
+                  flatRef.current?.scrollToIndex({ index, animated: false, viewPosition: 0.15 });
+                } catch {
+                  flatRef.current?.scrollToEnd({ animated: false });
+                }
               }, 300);
             }}
             ListEmptyComponent={
