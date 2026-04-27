@@ -1285,19 +1285,16 @@ export default function ChatScreen({ route, navigation }: any) {
                 </View>
               ) : null
             }
-            onLayout={() => {
-              if (didInitialScroll.current) return;
-              didInitialScroll.current = true;
-              if (firstUnreadIdx >= 0 && firstUnreadIdx < messages.length) {
-                try {
-                  flatRef.current?.scrollToIndex({ index: firstUnreadIdx, animated: false, viewPosition: 0.1 });
-                } catch {
-                  flatRef.current?.scrollToEnd({ animated: false });
-                }
-              } else {
-                flatRef.current?.scrollToEnd({ animated: false });
-              }
-            }}
+            initialScrollIndex={
+              firstUnreadIdx >= 0 && firstUnreadIdx < messages.length
+                ? firstUnreadIdx
+                : messages.length > 0 ? messages.length - 1 : undefined
+            }
+            getItemLayout={(_data, index) => ({
+              length: 72,
+              offset: 72 * index,
+              index,
+            })}
             onScrollToIndexFailed={({ index }) => {
               setTimeout(() => {
                 try { flatRef.current?.scrollToIndex({ index, animated: false, viewPosition: 0.15 }); }
