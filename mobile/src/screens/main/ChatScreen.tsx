@@ -1242,24 +1242,24 @@ export default function ChatScreen({ route, navigation }: any) {
     return <Text style={{ fontSize: 12, color: C.textSec, marginTop: 2 }}>@{other?.username}</Text>;
   }, [otherTyping, otherPresence, other?.username, C]);
 
-  // ── Scroll inicial via onContentSizeChange ────────────────────────────
-  // onContentSizeChange dispara cada vez que o conteúdo muda de tamanho.
-  // A flag didInitialScroll garante que só executa uma vez por abertura.
-  const handleFlatListLayout = useCallback(() => {}, []);
-  const handleContentSizeChange = useCallback(() => {
+  // ── Scroll inicial ────────────────────────────────────────────────────
+  useEffect(() => {
+    if (loading || messages.length === 0) return;
     if (didInitialScroll.current) return;
     didInitialScroll.current = true;
     const target = initialScrollTarget.current;
-    if (target === 'end') {
-      flatRef.current?.scrollToEnd({ animated: false });
-    } else {
-      try {
-        flatRef.current?.scrollToIndex({ index: target, animated: false, viewPosition: 0.1 });
-      } catch {
+    setTimeout(() => {
+      if (target === 'end') {
         flatRef.current?.scrollToEnd({ animated: false });
+      } else {
+        try {
+          flatRef.current?.scrollToIndex({ index: target, animated: false, viewPosition: 0.1 });
+        } catch {
+          flatRef.current?.scrollToEnd({ animated: false });
+        }
       }
-    }
-  }, []);
+    }, 300);
+  }, [loading, messages]);
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -1304,9 +1304,10 @@ export default function ChatScreen({ route, navigation }: any) {
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
-            onContentSizeChange={handleContentSizeChange}
+
             onScroll={({ nativeEvent }) => {
-              if (nativeEvent.contentOffset.y < 80) loadMoreMessages();
+              // Só paginar após o scroll inicial ter acontecido
+              if (didInitialScroll.current && nativeEvent.contentOffset.y < 80) loadMoreMessages();
             }}
             scrollEventThrottle={200}
             ListHeaderComponent={
