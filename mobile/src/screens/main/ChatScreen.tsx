@@ -1242,11 +1242,13 @@ export default function ChatScreen({ route, navigation }: any) {
     return <Text style={{ fontSize: 12, color: C.textSec, marginTop: 2 }}>@{other?.username}</Text>;
   }, [otherTyping, otherPresence, other?.username, C]);
 
-  // ── Scroll inicial via onLayout ────────────────────────────────────────
-  // onLayout dispara depois que o FlatList e seus itens estão renderizados.
-  // Usamos o alvo calculado no loadMessages (guardado em initialScrollTarget).
-  const handleFlatListLayout = useCallback(() => {
+  // ── Scroll inicial via onContentSizeChange ────────────────────────────
+  // onContentSizeChange dispara cada vez que o conteúdo muda de tamanho.
+  // A flag didInitialScroll garante que só executa uma vez por abertura.
+  const handleFlatListLayout = useCallback(() => {}, []);
+  const handleContentSizeChange = useCallback(() => {
     if (didInitialScroll.current) return;
+    didInitialScroll.current = true;
     const target = initialScrollTarget.current;
     if (target === 'end') {
       flatRef.current?.scrollToEnd({ animated: false });
@@ -1257,7 +1259,6 @@ export default function ChatScreen({ route, navigation }: any) {
         flatRef.current?.scrollToEnd({ animated: false });
       }
     }
-    didInitialScroll.current = true;
   }, []);
 
   return (
@@ -1303,7 +1304,7 @@ export default function ChatScreen({ route, navigation }: any) {
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
-            onLayout={handleFlatListLayout}
+            onContentSizeChange={handleContentSizeChange}
             onScroll={({ nativeEvent }) => {
               if (nativeEvent.contentOffset.y < 80) loadMoreMessages();
             }}
